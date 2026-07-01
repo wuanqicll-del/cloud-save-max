@@ -114,36 +114,36 @@ Docker 部署提供 WebUI 进行管理配置，部署命令：
 
 ```shell
 docker run -d \
-  --name cloud-auto-save-x \
+  --name cloud-save-max \
   -p 5115:5115 \
   -p 5225:5225 \
-  -v ./cloud-auto-save-x/data:/app/backend/data \
-  -v ./cloud-auto-save-x/media:/media \
-  -v ./cloud-auto-save-x/strm:/strm \
-  -v ./cloud-auto-save-x/nasfile:/app/backend/data/sync/nasfile \
+  -v ./cloud-save-max/data:/app/backend/data \
+  -v ./cloud-save-max/media:/media \
+  -v ./cloud-save-max/strm:/strm \
+  -v ./cloud-save-max/nasfile:/app/backend/data/sync/nasfile \
   --network bridge \
   --restart unless-stopped \
-  ozoo0/cloud-auto-save-x:latest
+  wuanqicll/cloud-save-max:latest
 ```
 
 docker-compose.yml
 
 ```yaml
-name: cloud-auto-save-x
+name: cloud-save-max
 services:
-  cloud-auto-save-x:
-    image: ozoo0/cloud-auto-save-x:latest
-    container_name: cloud-auto-save-x
+  cloud-save-max:
+    image: wuanqicll/cloud-save-max:latest
+    container_name: cloud-save-max
     network_mode: bridge
     ports:
       - 5115:5115
       - 5225:5225
     restart: unless-stopped
     volumes:
-      - ./cloud-auto-save-x/data:/app/backend/data
-      - ./cloud-auto-save-x/media:/media
-      - ./cloud-auto-save-x/strm:/strm
-      - ./cloud-auto-save-x/nasfile:/app/backend/data/sync/nasfile
+      - ./cloud-save-max/data:/app/backend/data
+      - ./cloud-save-max/media:/media
+      - ./cloud-save-max/strm:/strm
+      - ./cloud-save-max/nasfile:/app/backend/data/sync/nasfile
 ```
 
 管理地址：<http://yourhost:5115>
