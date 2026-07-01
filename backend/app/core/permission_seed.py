@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+from app.core.permissions import (
+    AUDIT_READ,
+    DRIVE_ACCOUNT_READ,
+    DRIVE_ACCOUNT_WRITE,
+    NOTIFY_READ,
+    NOTIFY_WRITE,
+    PERMISSION_READ,
+    PLUGIN_READ,
+    PLUGIN_WRITE,
+    ROLE_READ,
+    ROLE_WRITE,
+    SYNC_READ,
+    SYNC_RUN,
+    SYNC_WRITE,
+    TASK_READ,
+    TASK_RUN,
+    TASK_WRITE,
+    USER_READ,
+    USER_WRITE,
+)
+
+PERMISSIONS_SEED: list[tuple[str, str]] = [
+    (AUDIT_READ, "审计日志查看"),
+    (USER_READ, "用户查看"),
+    (USER_WRITE, "用户管理"),
+    (ROLE_READ, "角色查看"),
+    (ROLE_WRITE, "角色管理"),
+    (PERMISSION_READ, "权限查看"),
+    (DRIVE_ACCOUNT_READ, "驱动查看"),
+    (DRIVE_ACCOUNT_WRITE, "驱动管理"),
+    (PLUGIN_READ, "插件查看"),
+    (PLUGIN_WRITE, "插件管理"),
+    (NOTIFY_READ, "通知查看"),
+    (NOTIFY_WRITE, "通知管理"),
+    (TASK_READ, "任务查看"),
+    (TASK_WRITE, "任务管理"),
+    (TASK_RUN, "任务执行"),
+    (SYNC_READ, "同步任务查看"),
+    (SYNC_WRITE, "同步任务管理"),
+    (SYNC_RUN, "同步任务执行"),
+]
