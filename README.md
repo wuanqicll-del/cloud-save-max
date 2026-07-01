@@ -137,7 +137,6 @@ services:
     network_mode: bridge
     ports:
       - 5115:5115
-      - 5225:5225
     restart: unless-stopped
     volumes:
       - ./cloud-save-max/data:/app/backend/data
@@ -148,17 +147,10 @@ services:
 
 管理地址：<http://yourhost:5115>
 
-版本格式：`年.月.日`，例如 `26.7.2` 表示 2026年7月2日
-
-| 标签 | 说明 |
-|:---:|:---:|
-| `latest` | 最新版本 |
-| `26.7.2` | 指定版本 |
 
 | 环境变量             | 默认         | 备注                           |
 | ---------------- | ---------- | ---------------------------- |
-| `PORT`           | `5115`     | 管理后台/302端口                       |
-| `REVERSE_PORT`   | `5225`     | 反代端口                       |
+| `PORT`           | `5115`     | 管理后台                       |
 | `DEBUG`          | `0`        | 开启调试模式，打印更多日志信息 |
 | `DRAMA_RUNTIME_RETRY_MAX_ATTEMPTS`        | `0`        | 最大重试次数，默认3次，0表示不重试 |
 | `DRAMA_RUNTIME_RETRY_BACKOFF_SECONDS`        | `1`        | 重试延迟时间，默认1秒 |
