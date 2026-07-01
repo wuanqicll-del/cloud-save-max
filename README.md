@@ -67,9 +67,7 @@ Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto
 
 ---
 
-## 原项目说明
-
-以下是原项目 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto-save-x) 的完整说明：
+## 项目简介（原项目）
 
 <div align="center">
 
