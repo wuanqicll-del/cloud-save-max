@@ -67,7 +67,7 @@ Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto
 
 ---
 
-## 项目简介（原项目）
+## 项目简介
 
 <div align="center">
 
@@ -81,7 +81,7 @@ Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto
 
 > ⛔️⛔️⛔️ 注意！资源不会每时每刻更新，**严禁设定过高的定时运行频率！** 以免账号风控和给网盘服务器造成不必要的压力。雪山崩塌，每一片雪花都有责任！
 
-### 原项目简介
+### 简介
 
 网盘自动转存（Cloud Auto Save X 简称 CASX）是一个基于 FastAPI + Vue3 的 Web 应用，提供网盘自动转存功能，可以帮助你：
 
@@ -97,7 +97,7 @@ Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto
 - 🔔 **通知推送**：支持多个通知推送渠道，及时了解转存状态
 - 🔌 **插件系统**：支持多种插件扩展功能，包括媒体库局部刷新、下载任务推送、strm 文件生成等
 
-### 原项目自动转存功能
+### 自动转存功能
 
 - 分享链接自动识别资源存放文件夹
 - 转存任务文件智能重命名（需配置TMDB API密钥）
@@ -106,7 +106,7 @@ Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto
 - 支持自动解压压缩包（仅限夸克高级会员）
 - 支持一次性转存任务
 
-### 原项目部署
+### 部署
 
 #### Docker 部署
 
@@ -165,7 +165,7 @@ services:
 | `DRAMA_RUNTIME_RETRY_MAX_BACKOFF_SECONDS`        | `8`        | 最大重试延迟时间，默认8秒 |
 | `DRAMA_RUNTIME_RETRY_JITTER_RATIO`        | `0.2`        | 重试延迟随机化比例，默认0.2 |
 
-### 原项目正则处理示例
+### 正则处理示例
 
 | pattern                        | replace                 | 效果                                                 |
 | ------------------------------ | ----------------------- | -------------------------------------------------- |
@@ -180,15 +180,15 @@ services:
 
 > **魔法匹配和魔法变量**：在正则处理中，我们定义了一些"魔法匹配"模式，如果 表达式 的值以 $ 开头且 替换式 留空，程序将自动使用预设的正则表达式进行匹配和替换。
 
-### 原项目刷新媒体库
+### 刷新媒体库
 
 在有新转存时，可触发完成相应功能，如自动刷新媒体库、生成 .strm 文件等。
 
-### 原项目声明
+### 声明
 
 本项目基于个人兴趣开发并开源，仅供学习与交流使用，不包含任何破解行为，只是对网盘官方 API 的封装与调用，所有数据均来源于各大网盘官方，本人不对网盘内容及官方 API 变更所导致的任何后果负责。
 
-### 原项目致谢
+### 致谢
 
 本项目参考 [Cp0204/quark-auto-save](https://github.com/Cp0204/quark-auto-save/releases/tag/v0.8.4) 思路进行整体重构，感谢 [Cp0204](https://github.com/Cp0204) 的开源贡献。
 
