@@ -4,6 +4,8 @@
 
 基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto-save-x) v1.0.9版本改造的网盘自动转存工具
 
+当前版本：`26.7.2`
+
 [![GitHub releases](https://img.shields.io/github/v/release/wuanqicll-del/cloud-save-max?logo=github)](https://github.com/wuanqicll-del/cloud-save-max)
 [![Docker pulls](https://img.shields.io/docker/pulls/wuanqicll/cloud-save-max?logo=docker&logoColor=white)](https://hub.docker.com/r/wuanqicll/cloud-save-max)
 
@@ -147,6 +149,13 @@ services:
 ```
 
 管理地址：<http://yourhost:5115>
+
+版本格式：`年.月.日`，例如 `26.7.2` 表示 2026年7月2日
+
+| 标签 | 说明 |
+|:---:|:---:|
+| `latest` | 最新版本 |
+| `26.7.2` | 指定版本 |
 
 | 环境变量             | 默认         | 备注                           |
 | ---------------- | ---------- | ---------------------------- |

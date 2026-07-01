@@ -22,9 +22,13 @@ jobs:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+    - name: Generate version
+      id: version
+      run: echo "version=$(date +'%y.%-m.%-d')" >> $GITHUB_OUTPUT
+
     - name: Build and push
       uses: docker/build-push-action@v6
       with:
         context: .
         push: true
-        tags: ${{ secrets.DOCKERHUB_USERNAME }}/cloud-save-max:latest
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/cloud-save-max:latest,${{ secrets.DOCKERHUB_USERNAME }}/cloud-save-max:${{ steps.version.outputs.version }}
