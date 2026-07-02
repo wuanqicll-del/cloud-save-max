@@ -925,7 +925,7 @@ class DramaTaskExecutor:
             with SessionLocal() as snap_db:
                 snap = snap_db.execute(sa_select(TaskSavepathSnapshot).where(TaskSavepathSnapshot.task_uid == task_uid)).scalars().first()
         current_ep = int(getattr(snap, "saved_latest_episode", None) or 0) if snap else 0
-        if current_ep > 0 and plan:
+        if plan:
             addition = self.task_data.get("addition") or {}
             from app.services.share_preview_batch import fetch_share_file_list_grouped
             folder_filter = str(addition.get("folder_filter") or "").strip()

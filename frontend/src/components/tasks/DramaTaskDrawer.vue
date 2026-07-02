@@ -578,14 +578,8 @@ async function confirmTmdbLink() {
   if (id <= 0) return
   state.tmdb_id = id
   state.tmdb_media_type = tmdbLink.type
-  if (tmdbLink.type === 'tv' && tmdbLink.configured) {
-    if (state.runweek_mode !== 'auto') manualRunweekBackup.value = clone(state.runweek || [])
-    state.runweek_mode = 'auto'
-    state.runweek = []
+  if (tmdbLink.type === 'tv' && tmdbLink.configured && state.runweek_mode === 'auto') {
     await applyRunweekFromTmdbUpdateWeekdays(id, 'tv')
-  } else {
-    state.runweek_mode = 'manual'
-    autoRunweekDays.value = []
   }
   tmdbLink.visible = false
 }
@@ -1368,7 +1362,7 @@ function syncState() {
     state.enddate = null
     state.tmdb_id = props.presetTmdb?.tmdb_id ?? null
     state.tmdb_media_type = props.presetTmdb?.tmdb_media_type ?? null
-    state.addition = {}
+    state.addition = { auto_update_file_min_date: '1' }
     state.extra = {}
   }
 
