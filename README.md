@@ -4,8 +4,7 @@
 
 基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto-save-x) v1.0.9版本改造的网盘自动转存工具
 
-当前版本：`26.7.2`
-
+[![wiki](https://img.shields.io/badge/wiki-Documents-green?logo=github)](https://github.com/Cp0204/quark-auto-save/wiki)
 [![GitHub releases](https://img.shields.io/github/v/release/wuanqicll-del/cloud-save-max?logo=github)](https://github.com/wuanqicll-del/cloud-save-max)
 [![Docker pulls](https://img.shields.io/docker/pulls/wuanqicll/cloud-save-max?logo=docker&logoColor=white)](https://hub.docker.com/r/wuanqicll/cloud-save-max)
 
@@ -13,7 +12,7 @@
 
 ## 项目简介
 
-Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto-save-x) v1.0.9版本进行了大量改造的网盘自动转存工具，保留了原项目大部分功能，并新增了大量实用特性。
+Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto-save-x) v1.0.9版本进行改造的网盘自动转存工具，保留了原项目大部分功能，并新增了大量实用特性。
 
 ## 新增功能
 
@@ -71,8 +70,6 @@ Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto
 
 <div align="center">
 
-![cloud-logo](img/icon.png)
-
 # 网盘自动转存
 
 网盘签到、自动转存、命名整理、发推送提醒、刷新媒体库一条龙，内置自动修复异常任务能力。
@@ -101,8 +98,7 @@ Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto
 
 - 分享链接自动识别资源存放文件夹
 - 转存任务文件智能重命名（需配置TMDB API密钥）
-- 智能搜索资源并自动填充（集成 CloudSaver、PanSou，支持有效性检查、失效过滤）
-- 支持自动修复异常任务（如分享链接失效、账号被限流等）
+- 智能搜索资源并自动填充（集成 CloudSaver、PanSou，支持有效性检查、支持所有过滤/筛选。
 - 支持自动解压压缩包（仅限夸克高级会员）
 - 支持一次性转存任务
 
@@ -115,12 +111,11 @@ Docker 部署提供 WebUI 进行管理配置，部署命令：
 ```shell
 docker run -d \
   --name cloud-save-max \
-  -p 5115:5115 \
-  -p 5225:5225 \
-  -v ./cloud-save-max/data:/app/backend/data \
-  -v ./cloud-save-max/media:/media \
-  -v ./cloud-save-max/strm:/strm \
-  -v ./cloud-save-max/nasfile:/app/backend/data/sync/nasfile \
+  -p 5115:5115 \ # 映射端口，:前的可以改，即部署后访问的端口，:后的不可改
+  -v ./cloud-save-max/data:/app/backend/data \ # 必须，配置持久化
+  -v ./cloud-save-max/media:/media \ # 可选，模块alist_strm_gen生成strm使用
+  -v ./cloud-save-max/strm:/strm \ # 可选，项目本身生成strm使用
+  -v ./cloud-save-max/nasfile:/app/backend/data/sync/nasfile \ # 可选，用于同步任务Local使用，可与网盘数据同步
   --network bridge \
   --restart unless-stopped \
   wuanqicll/cloud-save-max:latest
@@ -136,13 +131,13 @@ services:
     container_name: cloud-save-max
     network_mode: bridge
     ports:
-      - 5115:5115
+      - 5115:5115 # 映射端口，:前的可以改，即部署后访问的端口，:后的不可改
     restart: unless-stopped
     volumes:
-      - ./cloud-save-max/data:/app/backend/data
-      - ./cloud-save-max/media:/media
-      - ./cloud-save-max/strm:/strm
-      - ./cloud-save-max/nasfile:/app/backend/data/sync/nasfile
+      - ./cloud-save-max/data:/app/backend/data # 必须，配置持久化
+      - ./cloud-save-max/media:/media # 可选，模块alist_strm_gen生成strm使用
+      - ./cloud-save-max/strm:/strm # 可选，项目本身生成strm使用
+      - ./cloud-save-max/nasfile:/app/backend/data/sync/nasfile # 可选，用于同步任务Local使用，可与网盘数据同步
 ```
 
 管理地址：<http://yourhost:5115>
@@ -170,11 +165,24 @@ services:
 
 **默认规则**：在已配置TMDB后，留空则增加兜底智能匹配。
 
-> **魔法匹配和魔法变量**：在正则处理中，我们定义了一些"魔法匹配"模式，如果 表达式 的值以 $ 开头且 替换式 留空，程序将自动使用预设的正则表达式进行匹配和替换。
+更多正则使用说明：[正则处理教程](https://github.com/ozoo0/cloud-auto-save-x/wiki/正则处理教程)
+
+> \[!TIP]
+>
+> **魔法匹配和魔法变量**：在正则处理中，我们定义了一些“魔法匹配”模式，如果 表达式 的值以 $ 开头且 替换式 留空，程序将自动使用预设的正则表达式进行匹配和替换。
+>
+> 更多说明请看[魔法匹配和魔法变量](https://github.com/ozoo0/cloud-auto-save-x/wiki/魔法匹配和魔法变量)
 
 ### 刷新媒体库
 
-在有新转存时，可触发完成相应功能，如自动刷新媒体库、生成 .strm 文件等。
+在有新转存时，可触发完成相应功能，如自动刷新媒体库、生成 .strm 文件等。配置指南：[插件配置](https://github.com/ozoo0/cloud-auto-save-x/wiki/插件配置)
+
+媒体库模块以插件的方式的集成，如果你有兴趣请参考[插件开发指南](https://github.com/ozoo0/cloud-auto-save-x/tree/main/plugins)。
+
+### 更多使用技巧
+
+请参考 Wiki ：[使用技巧集锦](https://github.com/ozoo0/cloud-auto-save-x/wiki/使用技巧集锦)
+
 
 ### 声明
 
@@ -182,14 +190,12 @@ services:
 
 ### 致谢
 
-本项目参考 [Cp0204/quark-auto-save](https://github.com/Cp0204/quark-auto-save/releases/tag/v0.8.4) 思路进行整体重构，感谢 [Cp0204](https://github.com/Cp0204) 的开源贡献。
-
+感谢 [Cp0204](https://github.com/Cp0204) 的开源贡献。
+感谢 [OzoO0](https://github.com/OzoO0) 的开源贡献。
 ---
+## ❤️ 支持项目
 
-## 致谢
+如果觉得这个项目对你有帮助，你可以通过以下方式支持我：
 
-感谢原项目作者 [OzoO0](https://github.com/OzoO0) 的开源贡献。
-
-## 许可证
-
-本项目基于 [AGPL-3.0](LICENSE) 许可证开源。
+1. ⭐ 给项目点个 Star，让更多的人看到
+2. 📢 分享给更多有需要的朋友

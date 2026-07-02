@@ -19,16 +19,16 @@ class MagicRename:
             "replace": "",
         },
         "$TV_MAGIC": {
-            "pattern": r".*\.(mp4|mkv|mov|m4v|avi|mpeg|ts)$",
-            "replace": r"{TASKNAME}.{SXX}E{E}.{EXT}",
+            "pattern": r".*\.(mp4|mkv|mov|m4v|avi|mpeg|ts|zip)$",
+            "replace": r"{TASKNAME}.{SXX}E{E0}.{EXT}",
         },
         "$SHOW_MAGIC": {
             "pattern": r"^(?!.*纯享)(?!.*加更)(?!.*抢先)(?!.*预告).*?第\d+期.*",
-            "replace": r"{TASKNAME}.{SXX}E{II}.第{E}期{PART}.{EXT}",
+            "replace": r"{TASKNAME}.{SXX}E{E0}.第{E}期{PART}.{EXT}",
         },
         "$SHOW_PRO": {
-            "pattern": r"^(?!.*纯享)(?!.*加更)(?!.*抢先)(?!.*预告).*?第\d+期.*",
-            "replace": r"{II}.{TASKNAME}.{DATE}.第{E}期{PART}.{EXT}",
+            "pattern": r"^(?!.*纯享)(?!.*加更).*?第(\d+)期[\s(（]?[上下].*?\.(mp4|mkv|zip)",
+            "replace": r"{SXX}E{E2}.{EXT}",
         },
     }
 
