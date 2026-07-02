@@ -1607,6 +1607,7 @@ async function openDrivePicker() {
   drivePicker.sortOrder = 'asc'
   drivePicker.mobileSort = 'file_name:asc'
   drivePicker.paths = []
+  await getTmdbDetailForCurrent()
   await browseDriveDir(state.savepath || '/')
 }
 
@@ -1663,10 +1664,36 @@ function driveGoBack() {
   browseDriveDir(fid === '0' ? '/' : fid)
 }
 
+function driveSavepathHint() {
+  const name = String(state.taskname || '').trim()
+  if (!name) return ''
+  const id = Number(state.tmdb_id) || 0
+  const mt = String(state.tmdb_media_type || '').toLowerCase()
+  if (id <= 0 || (mt !== 'movie' && mt !== 'tv')) return name
+  const key = `${mt}:${id}`
+  const detail = saveAuto.tmdbDetailCache[key]
+  if (!detail) return name
+  const seasons = Array.isArray(detail?.seasons) ? detail.seasons : []
+  const validSeasons = seasons.filter((s: any) => s && Number(s.season_number) > 0)
+  const last = validSeasons.slice(-1)[0]
+  const sn = Number(last?.season_number) || 1
+  // 年份取最新季的播出年份，没有则取剧的首播年份
+  const seasonAirDate = String(last?.air_date || '')
+  let year: number | null = null
+  if (seasonAirDate.length >= 4 && /^\d{4}/.test(seasonAirDate)) {
+    year = Number(seasonAirDate.slice(0, 4))
+  } else {
+    year = yearFromTmdbDetail(mt, detail)
+  }
+  const nameWithYear = appendYearSuffix(name, year)
+  return `${nameWithYear}/Season ${sn}`
+}
+
 function useCurrentDrivePath(withTaskname: boolean) {
   const base = currentDrivePathLabel()
   if (withTaskname && state.taskname.trim()) {
-    state.savepath = `${base}/${state.taskname.trim()}`.replace(/\/+/g, '/')
+    const hint = driveSavepathHint() || state.taskname.trim()
+    state.savepath = `${base}/${hint}`.replace(/\/+/g, '/')
   } else {
     state.savepath = base
   }
@@ -2521,7 +2548,7 @@ async function submitSaveTemplate() {
           <el-button @click="driveGoRoot">根目录</el-button>
           <el-button v-if="drivePicker.paths.length" @click="driveGoBack">返回上级</el-button>
           <el-button type="primary" @click="useCurrentDrivePath(false)">当前文件夹</el-button>
-          <el-button v-if="state.taskname.trim()" type="primary" @click="useCurrentDrivePath(true)">当前文件夹/{{ state.taskname.trim() }}</el-button>
+          <el-button v-if="state.taskname.trim()" type="primary" @click="useCurrentDrivePath(true)">当前文件夹/{{ driveSavepathHint() }}</el-button>
         </div>
         <div class="drawer-form__hint" style="margin-top: 10px">当前路径：{{ currentDrivePathLabel() }}</div>
         <el-breadcrumb v-if="drivePicker.paths.length" separator="/">
