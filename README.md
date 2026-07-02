@@ -145,16 +145,6 @@ services:
 
 管理地址：<http://yourhost:5115>
 
-
-| 环境变量             | 默认         | 备注                           |
-| ---------------- | ---------- | ---------------------------- |
-| `PORT`           | `5115`     | 管理后台                       |
-| `DEBUG`          | `0`        | 开启调试模式，打印更多日志信息 |
-| `DRAMA_RUNTIME_RETRY_MAX_ATTEMPTS`        | `0`        | 最大重试次数，默认3次，0表示不重试 |
-| `DRAMA_RUNTIME_RETRY_BACKOFF_SECONDS`        | `1`        | 重试延迟时间，默认1秒 |
-| `DRAMA_RUNTIME_RETRY_MAX_BACKOFF_SECONDS`        | `8`        | 最大重试延迟时间，默认8秒 |
-| `DRAMA_RUNTIME_RETRY_JITTER_RATIO`        | `0.2`        | 重试延迟随机化比例，默认0.2 |
-
 ### 正则处理示例
 
 | pattern                        | replace                 | 效果                                                 |
