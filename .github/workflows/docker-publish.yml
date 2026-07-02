@@ -27,7 +27,12 @@ jobs:
 
     - name: Generate version
       id: version
-      run: echo "version=$(date +'%y.%-m.%-d')" >> $GITHUB_OUTPUT
+      run: |
+        if [ "${{ github.ref_type }}" = "tag" ]; then
+          echo "version=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=$(TZ=Asia/Shanghai date +'%y.%-m.%-d')" >> $GITHUB_OUTPUT
+        fi
 
     - name: Build and push
       uses: docker/build-push-action@v6
