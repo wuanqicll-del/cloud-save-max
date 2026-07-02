@@ -2418,7 +2418,7 @@ async function submitSaveTemplate() {
         <div v-else class="plugin-stack">
           <div v-for="plugin in plugins" :key="plugin.plugin_key" class="plugin-block">
             <div class="plugin-block__title">{{ plugin.plugin_key }}</div>
-            <el-form-item v-for="field in plugin.task_config_fields || []" :key="field.key" :label="field.label || field.key">
+            <el-form-item v-for="field in (plugin.task_config_fields || []).filter(f => !(plugin.plugin_key === 'auto_unarchive' && f.key === 'auto_clean_zipdir'))" :key="field.key" :label="field.label || field.key">
               <el-switch
                 v-if="field.input_type === 'switch'"
                 v-model="state.addition[plugin.plugin_key][field.key]"

@@ -17,7 +17,7 @@ class Auto_unarchive:
     default_task_config = {
         "enable": False,  # 是否自动解压
         "auto_clean": True,  # 是否自动删除原始文件
-        "auto_clean_zipdir": True,  # 是否删除占位目录，适用于一次性运行的任务，无须防止重复转存的占位目录
+        "auto_clean_zipdir": True,
     }
 
     is_active = True  # 默认全局激活，由任务配置中开启
