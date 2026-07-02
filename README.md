@@ -14,7 +14,7 @@
 
 Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto-save-x) v1.0.9版本进行改造的网盘自动转存工具，保留了原项目大部分功能，修改了一些逻辑并新增了大量新功能，做到一次添加之后全程无需手动管理。
 
-## 新增功能
+## 本项目新增功能（部分，细节的就不说了）
 
 ### 搜索与筛选
 
@@ -66,7 +66,7 @@ Cloud Save Max 是基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto
 
 ---
 
-## 项目简介
+## 原项目简介
 
 <div align="center">
 
