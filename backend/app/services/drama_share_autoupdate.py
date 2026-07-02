@@ -515,13 +515,15 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                     removed = before_count - len(suggestions)
                     if removed:
                         search_stats["skip_non_preferred"] = removed
-            # 屏蔽分享者过滤
-            from app.services.resource_search import filter_blocked_sharers
-            before_count = len(suggestions)
-            suggestions = filter_blocked_sharers(db, suggestions)
-            removed = before_count - len(suggestions)
-            if removed:
-                search_stats["skip_blocked"] = removed
+            # 屏蔽分享者过滤（show_blocked=True 时跳过过滤，显示屏蔽分享者的结果）
+            show_blocked = bool(addition.get("show_blocked"))
+            if not show_blocked:
+                from app.services.resource_search import filter_blocked_sharers
+                before_count = len(suggestions)
+                suggestions = filter_blocked_sharers(db, suggestions)
+                removed = before_count - len(suggestions)
+                if removed:
+                    search_stats["skip_blocked"] = removed
     for i, s in enumerate(suggestions[:10]):
         pass
     if not suggestions:

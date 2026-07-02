@@ -23,6 +23,7 @@ export type TaskSuggestionItem = {
   verify?: boolean | null
   share_author_name?: string | null
   is_preferred_sharer?: boolean
+  is_blocked_sharer?: boolean
 }
 
 export type TaskSuggestionResponse = {

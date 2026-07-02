@@ -630,13 +630,14 @@ async function verifySuggestions(runId: number, items: TaskSuggestionItemExt[]) 
         return
       }
       const author = (row.share_author_name || '').trim()
-      if (author && sharerFilterConfig.blocked.includes(author)) {
+      if (!state.addition.show_blocked && author && sharerFilterConfig.blocked.includes(author)) {
         filteredInvalid++
         return
       }
       orig.share_author_name = author || undefined
       const isPreferred = author ? sharerFilterConfig.preferred.includes(author) : false
       orig.is_preferred_sharer = isPreferred
+      orig.is_blocked_sharer = author ? sharerFilterConfig.blocked.includes(author) : false
       if (state.addition.preferred_only && !isPreferred) {
         filteredInvalid++
         return
@@ -689,7 +690,7 @@ async function searchSuggestions(deep: 0 | 1) {
         }
       }
     }
-    const data = await fetchTaskSuggestions(q, deep, driveType, state.addition?.search_filter || '', state.addition?.search_exclude || '', state.addition?.search_date_from || '', state.addition?.search_filter_mode || '', state.addition?.search_exclude_mode || '')
+    const data = await fetchTaskSuggestions(q, deep, driveType, state.addition?.search_filter || '', state.addition?.search_exclude || '', state.addition?.search_date_from || '', state.addition?.search_filter_mode || '', state.addition?.search_exclude_mode || '', state.addition?.show_blocked)
     if (runId !== taskSuggestions.runId) return
     const rawItems = (data.data || []).filter((x) => x && x.shareurl)
     taskSuggestions.notice = String((data as any)?.message || '').trim()
@@ -2198,7 +2199,7 @@ async function submitSaveTemplate() {
               :key="`${item.shareurl}-${idx}`"
               class="task-suggestions__item"
               :class="{ 'task-suggestions__item--selected': taskSuggestions.selectedItem === item }"
-              :style="item.is_preferred_sharer ? { backgroundColor: '#e8f5e9' } : {}"
+              :style="item.is_blocked_sharer ? { backgroundColor: '#fde8e8' } : item.is_preferred_sharer ? { backgroundColor: '#e8f5e9' } : {}"
             >
               <span
                 v-if="item.datetime"
@@ -2277,6 +2278,10 @@ async function submitSaveTemplate() {
         <el-form-item label="只看优选分享者">
           <el-switch v-model="state.addition.preferred_only" active-text="开启" inactive-text="关闭" />
           <div class="drawer-form__hint">开启后搜索结果只显示优选分享者的内容</div>
+        </el-form-item>
+        <el-form-item label="显示屏蔽分享者">
+          <el-switch v-model="state.addition.show_blocked" active-text="开启" inactive-text="关闭" />
+          <div class="drawer-form__hint">开启后搜索结果和自动换链候选中会包含被屏蔽分享者的内容</div>
         </el-form-item>
         <el-form-item v-if="showAutoUpdateToggle" label="自动换链">
           <el-switch v-model="state.auto_update_shareurl" active-text="开启" inactive-text="关闭" />

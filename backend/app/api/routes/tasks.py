@@ -404,12 +404,27 @@ def list_magic_regex(db: Session = Depends(get_db)) -> MagicRegexOut:
 
 
 @router.get("/suggestions", response_model=TaskSuggestionListOut, dependencies=[Depends(require_permissions(TASK_READ))])
-def get_task_suggestions(q: str = "", d: int = 0, drive_type: str = "", sf: str = "", se: str = "", df: str = "", sfm: str = "", sem: str = "", db: Session = Depends(get_db)) -> TaskSuggestionListOut:
+def get_task_suggestions(q: str = "", d: int = 0, drive_type: str = "", sf: str = "", se: str = "", df: str = "", sfm: str = "", sem: str = "", show_blocked: bool = False, db: Session = Depends(get_db)) -> TaskSuggestionListOut:
     try:
         dt = str(drive_type or "").strip() or None
         items, changed, msg = fetch_task_suggestions(db, keyword=q, deep=d, drive_type=dt, search_filter=sf, search_exclude=se, search_date_from=df, search_filter_mode=sfm, search_exclude_mode=sem)
         if changed:
             db.commit()
+        # 标记屏蔽分享者（不过滤，只标记）
+        if items:
+            from app.models.system_setting import SystemSetting
+            blocked_setting = db.query(SystemSetting).filter(SystemSetting.key == "blocked_sharers").first()
+            blocked_set = {name.strip() for name in (blocked_setting.value or "").split("|") if name.strip()} if blocked_setting else set()
+            if blocked_set:
+                for item in items:
+                    author = str(item.get("share_author_name") or "").strip()
+                    if author and author in blocked_set:
+                        item["is_blocked_sharer"] = True
+                    else:
+                        item["is_blocked_sharer"] = False
+            else:
+                for item in items:
+                    item["is_blocked_sharer"] = False
         return TaskSuggestionListOut(success=True, data=items, message=msg)
     except Exception as e:
         return TaskSuggestionListOut(success=True, message=f"error: {str(e)}", data=[])
