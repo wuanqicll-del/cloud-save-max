@@ -2,8 +2,6 @@
 
 # Cloud Save Max
 
-基于 [cloud-auto-save-x](https://github.com/OzoO0/cloud-auto-save-x) v1.0.9版本改造的网盘自动转存工具
-
 [![wiki](https://img.shields.io/badge/wiki-Documents-green?logo=github)](https://github.com/Cp0204/quark-auto-save/wiki)
 [![GitHub releases](https://img.shields.io/github/v/release/wuanqicll-del/cloud-save-max?logo=github)](https://github.com/wuanqicll-del/cloud-save-max)
 [![Docker pulls](https://img.shields.io/docker/pulls/wuanqicll/cloud-save-max?logo=docker&logoColor=white)](https://hub.docker.com/r/wuanqicll/cloud-save-max)
