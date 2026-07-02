@@ -67,16 +67,6 @@ class TimingMiddleware:
             if message.get("type") == "http.response.body" and not message.get("more_body", False):
                 elapsed_ms = (time.perf_counter() - start) * 1000.0
                 metrics_store.record(key, elapsed_ms)
-                access_logger.info(
-                    "rid=%s method=%s path=%s query=%s status=%s cost_ms=%.2f client_ip=%s",
-                    rid,
-                    method,
-                    path,
-                    query,
-                    status_code,
-                    elapsed_ms,
-                    client_ip,
-                )
             await send(message)
 
         try:

@@ -687,7 +687,6 @@ class GuangyaAdapter(BaseCloudDriveAdapter):
         try:
             payload = self._client.user_info()
         except Exception as exc:
-            logger.info("[guangya] user_info failed: %s", exc)
             return None
         if not _is_success(payload):
             return None
@@ -702,7 +701,6 @@ class GuangyaAdapter(BaseCloudDriveAdapter):
             if not _is_success(refresh_payload) and not self._client.token:
                 return None
         except Exception as exc:
-            logger.info("[guangya] refresh_token failed: %s", exc)
             return None
         return self._try_user_info()
 
@@ -713,12 +711,10 @@ class GuangyaAdapter(BaseCloudDriveAdapter):
         try:
             payload = self._client.fs_files(parent_id=None, page=0, page_size=1)
         except Exception as exc:
-            logger.info("[guangya] fs_files validation failed: %s", exc)
             return False
         if _is_success(payload):
             return True
         if _has_explicit_failure(payload):
-            logger.info("[guangya] fs_files validation explicit failure: %s", _payload_summary(payload))
             return False
         data = _extract_data(payload)
         if isinstance(data, dict):
@@ -728,7 +724,6 @@ class GuangyaAdapter(BaseCloudDriveAdapter):
                 return True
         if isinstance(data, list):
             return True
-        logger.info("[guangya] fs_files validation unknown payload: %s", _payload_summary(payload))
         return False
 
     def init(self) -> Any:
@@ -824,8 +819,8 @@ class GuangyaAdapter(BaseCloudDriveAdapter):
             data = _extract_data(assets_payload)
             if isinstance(data, dict):
                 assets_data = data
-        except Exception as exc:
-            logger.info("[guangya] get_assets failed: %s", exc)
+        except Exception:
+            pass
 
         nickname = _clean_text(_deep_get(info, "nickname", "nickName", "username", "phoneNumber")) or self.nickname or self._account_name
         self.nickname = nickname

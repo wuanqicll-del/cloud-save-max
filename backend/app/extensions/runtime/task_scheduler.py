@@ -24,6 +24,7 @@ from app.services.drive_accounts import probe_drive_account, sign_in_drive_accou
 from app.services.sync_execution_cleanup import purge_old_sync_executions
 from app.services.sync_execution_recovery import abort_stale_running_sync_executions
 from app.services.sync_task_triggers import should_trigger_linked_sync_for_drama_execution, trigger_linked_sync_tasks_async
+from app.services.audit_log_scheduler import get_or_create_audit_log_scheduler_setting, purge_old_audit_logs
 from app.models.drive_account import DriveAccount
 from app.extensions.runtime.account_manager import DatabaseAccountManager
 from app.extensions.runtime.task_executor import TaskExecutor
@@ -103,6 +104,17 @@ class TaskSchedulerManager:
             except Exception as e:
                 logger.error(f"驱动账号探测调度配置应用失败: {e}")
 
+            try:
+                audit_log_setting = get_or_create_audit_log_scheduler_setting(db)
+                db.commit()
+                db.refresh(audit_log_setting)
+                self._apply_audit_log_setting(audit_log_setting)
+            except OperationalError as e:
+                logger.error(f"审计日志清理调度配置加载失败: {e}")
+                return
+            except Exception as e:
+                logger.error(f"审计日志清理调度配置应用失败: {e}")
+
     def _apply_setting(self, setting: Any) -> None:
         if self.scheduler is None:
             return
@@ -135,7 +147,6 @@ class TaskSchedulerManager:
         if not bool(getattr(setting, "enabled", False)):
             if self.scheduler.get_job(job_id):
                 self.scheduler.remove_job(job_id)
-                logger.info("已移除 TMDB 缓存定时刷新调度")
             return
         try:
             trigger = CronTrigger.from_crontab(str(setting.crontab), timezone=str(setting.timezone or "Asia/Shanghai"))
@@ -154,14 +165,6 @@ class TaskSchedulerManager:
                 self.scheduler.remove_job(job_id)
             return
         job = self.scheduler.get_job(job_id)
-        logger.info(
-            "已加载 TMDB 缓存定时刷新调度 only_refresh_linked_tasks=%s max_items_per_run=%s crontab=%s timezone=%s next_run=%s",
-            bool(getattr(setting, "only_refresh_linked_tasks", True)),
-            int(getattr(setting, "max_items_per_run", 200) or 200),
-            str(getattr(setting, "crontab", "")),
-            str(getattr(setting, "timezone", "")),
-            getattr(job, "next_run_time", None),
-        )
 
 
     def _apply_drive_account_probe_setting(self, setting: Any) -> None:
@@ -171,7 +174,6 @@ class TaskSchedulerManager:
         if not bool(getattr(setting, "enabled", False)):
             if self.scheduler.get_job(job_id):
                 self.scheduler.remove_job(job_id)
-                logger.info("已移除驱动账号探测调度")
             return
         try:
             trigger = CronTrigger.from_crontab(str(setting.crontab), timezone=str(setting.timezone or "Asia/Shanghai"))
@@ -190,13 +192,33 @@ class TaskSchedulerManager:
                 self.scheduler.remove_job(job_id)
             return
         job = self.scheduler.get_job(job_id)
-        logger.info(
-            "已加载驱动账号探测调度 enabled_only=%s crontab=%s timezone=%s next_run=%s",
-            bool(getattr(setting, "enabled_only", True)),
-            str(getattr(setting, "crontab", "")),
-            str(getattr(setting, "timezone", "")),
-            getattr(job, "next_run_time", None),
-        )
+
+
+    def _apply_audit_log_setting(self, setting: Any) -> None:
+        if self.scheduler is None:
+            return
+        job_id = "audit_log_cleanup"
+        if not bool(getattr(setting, "enabled", False)):
+            if self.scheduler.get_job(job_id):
+                self.scheduler.remove_job(job_id)
+            return
+        try:
+            trigger = CronTrigger.from_crontab(str(setting.crontab), timezone=str(setting.timezone or "Asia/Shanghai"))
+            self.scheduler.add_job(
+                run_audit_log_cleanup,
+                trigger=trigger,
+                id=job_id,
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=60,
+            )
+        except Exception as e:
+            logger.error(f"审计日志清理调度 crontab 无效 job_id={job_id} crontab={getattr(setting, 'crontab', '')}: {e}")
+            if self.scheduler.get_job(job_id):
+                self.scheduler.remove_job(job_id)
+            return
+        job = self.scheduler.get_job(job_id)
 
 
 def run_drama_tasks() -> None:
@@ -293,29 +315,18 @@ def run_drama_tasks() -> None:
     if success_task_uids:
         trigger_linked_sync_tasks_async(success_task_uids, source="scheduler.run_drama_tasks")
     plugin_candidates_count = len(plugin_candidates)
-    logger.info(
-        "追剧任务调度后置插件阶段: 候选任务数=%d success_task_uids=%s",
-        plugin_candidates_count,
-        success_task_uids,
-    )
     if not plugin_candidates:
         return
     try:
         with SessionLocal() as pdb:
             try:
-                logger.debug("追剧调度后置插件: 同步插件定义")
                 sync_plugin_definitions(pdb)
                 pdb.commit()
-                logger.debug("追剧调度后置插件: 插件定义同步完成")
             except Exception:
                 pdb.rollback()
                 logger.exception("追剧调度后置插件: 插件定义同步失败")
             try:
                 plugins = PluginRegistry(pdb).load_active_plugins()
-                logger.info(
-                    "追剧调度后置插件: 加载到插件数=%d",
-                    len(plugins),
-                )
                 pdb.rollback()
             except Exception:
                 plugins = []
@@ -332,10 +343,8 @@ def run_drama_tasks() -> None:
         definition = item.get("definition")
         plugin_key = str(getattr(plugin, "plugin_name", "") or getattr(definition, "plugin_key", "") or "").strip()
         if not bool(getattr(plugin, "is_active", False)):
-            logger.debug("追剧调度后置插件: 跳过（is_active=false） plugin=%s", plugin_key)
             continue
         if not hasattr(plugin, "run"):
-            logger.debug("追剧调度后置插件: 跳过（缺少 run 方法） plugin=%s", plugin_key)
             continue
         if not plugin_key:
             continue
@@ -347,7 +356,6 @@ def run_drama_tasks() -> None:
             adapter = getattr(execution, "_runtime_adapter", None)
             tree = getattr(execution, "_runtime_tree", None)
             if not isinstance(task_data, dict) or adapter is None or tree is None:
-                logger.debug("追剧调度后置插件: 跳过（执行结果缺少必要数据） plugin=%s", plugin_key)
                 continue
             merged_cfg = dict(base_task_cfg)
             addition_cfg = (task_data.get("addition") or {}).get(plugin_key)
@@ -367,17 +375,11 @@ def run_drama_tasks() -> None:
             dedupe_key = f"{plugin_key}|{account_key}|{cfg_key}|{context_key}"
             if dedupe_key not in deduped:
                 deduped[dedupe_key] = (plugin, task_data, adapter, tree)
-    logger.info(
-        "追剧调度后置插件: 去重后待执行插件任务数=%d",
-        len(deduped),
-    )
     for _k, payload in deduped.items():
         plugin, task_data, adapter, tree = payload
         plugin_key = str(getattr(plugin, "plugin_name", "") or getattr(plugin, "__class__", type(plugin)).__name__ or "").strip()
         try:
-            logger.info("追剧调度后置插件: 执行 plugin=%s taskname=%s", plugin_key, str(task_data.get("taskname") or ""))
             plugin.run(task_data, account=adapter, tree=tree)
-            logger.info("追剧调度后置插件: 成功 plugin=%s", plugin_key)
         except Exception:
             logger.exception("追剧调度后置插件: 执行失败 plugin=%s", plugin_key)
 
@@ -390,12 +392,7 @@ def run_sync_execution_recovery() -> None:
             if n or int(cleanup.get("deleted_executions") or 0) or int(cleanup.get("deleted_files") or 0):
                 db.commit()
                 if cleanup.get("deleted_executions") or cleanup.get("deleted_files"):
-                    logger.info(
-                        "同步执行历史清理完成 sync_tasks=%s deleted_executions=%s deleted_files=%s",
-                        int(cleanup.get("sync_tasks") or 0),
-                        int(cleanup.get("deleted_executions") or 0),
-                        int(cleanup.get("deleted_files") or 0),
-                    )
+                    pass
             else:
                 db.rollback()
         except OperationalError as e:
@@ -423,15 +420,6 @@ def run_tmdb_cache_refresh() -> None:
                 result = refresh_expired_cache(db, max_items=max_items, force=True)
             deleted = purge_cold_cache(db, retention_days=retention_days)
             db.commit()
-            logger.info(
-                "TMDB 缓存定时刷新执行完成 only_refresh_linked_tasks=%s max_items_per_run=%s refreshed=%s targets=%s configured=%s purged=%s",
-                only_linked,
-                max_items,
-                int(result.get("refreshed") or 0),
-                int(result.get("targets") or 0),
-                int(result.get("configured") or 0),
-                int(deleted),
-            )
         except Exception as e:
             db.rollback()
             logger.warning(
@@ -469,7 +457,6 @@ def run_drive_account_probe() -> None:
             if account_id > 0:
                 account_ids.append(account_id)
 
-    logger.info("开始执行驱动账号自动探测 enabled_only=%s accounts=%s", enabled_only, len(account_ids) + skipped)
     ok = 0
     failed = 0
 
@@ -555,7 +542,7 @@ def run_drive_account_probe() -> None:
                 except ApiError as exc:
                     sdb.rollback()
                     if exc.code in {"DRIVE_SIGNIN_UNSUPPORTED"}:
-                        logger.info("驱动账号自动签到不支持 account_id=%s", account_id)
+                        pass
                     else:
                         logger.warning(
                             "驱动账号自动签到失败 account_id=%s code=%s msg=%s",
@@ -576,7 +563,18 @@ def run_drive_account_probe() -> None:
                     logger.warning("驱动账号自动签到异常 account_id=%s err=%s", account_id, str(exc))
                     break
 
-    logger.info("驱动账号自动探测完成 ok=%s skipped=%s failed=%s", ok, skipped, failed)
+
+def run_audit_log_cleanup() -> None:
+    with SessionLocal() as db:
+        try:
+            setting = get_or_create_audit_log_scheduler_setting(db)
+            db.commit()
+            db.refresh(setting)
+            retention_days = int(getattr(setting, "retention_days", 30) or 30)
+            deleted = purge_old_audit_logs(db, retention_days=retention_days)
+            db.commit()
+        except Exception:
+            db.rollback()
 
 
 task_scheduler_manager = TaskSchedulerManager()

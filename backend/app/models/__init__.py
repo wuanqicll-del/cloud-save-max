@@ -1,5 +1,6 @@
 from app.models.associations import role_permissions, user_roles
 from app.models.audit_log import AuditLog
+from app.models.audit_log_scheduler_setting import AuditLogSchedulerSetting
 from app.models.drive_account import DriveAccount
 from app.models.drive_account_probe_scheduler_setting import DriveAccountProbeSchedulerSetting
 from app.models.invalid_share_link import InvalidShareLink
@@ -36,6 +37,7 @@ from app.models.telegram_bot_state import TelegramBotState
 
 __all__ = [
     "AuditLog",
+    "AuditLogSchedulerSetting",
     "DriveAccount",
     "DriveAccountProbeSchedulerSetting",
     "InvalidShareLink",

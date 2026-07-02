@@ -428,7 +428,6 @@ class Cloud115Adapter(BaseCloudDriveAdapter):
                     "message": f"获取目录失败: {e}",
                     "data": {"list": []},
                 }
-        logger.debug(f"[115] ls_dir result: {len(list_merge)} items")
         return {
             "code": 0,
             "message": "success",
@@ -513,12 +512,10 @@ class Cloud115Adapter(BaseCloudDriveAdapter):
             "receive_code": receive_code,
             "file_id": ",".join(fid_token_list),
         }
-        logger.info(f"[115] receive: {url}, file_id={data['file_id']}")
         errors = []
         try:
             resp = self._request(save_session, "POST", url, data=data, timeout=30)
             result = self._safe_json(resp)
-            logger.info(f"[115] receive resp: {result}")
             if not result.get("state"):
                 errors.append(result.get("error", "转存失败"))
         except Exception as e:
@@ -567,8 +564,6 @@ class Cloud115Adapter(BaseCloudDriveAdapter):
             # 兼容旧调用方式：直接返回新增文件的 fid 列表
             saved_fids = list(name_to_new_fid.values())
 
-        logger.info(f"[115] 转存完成，新文件映射: {name_to_new_fid}")
-        logger.info(f"[115] 按顺序返回 fids: {saved_fids}")
 
         return {
             "code": 0,

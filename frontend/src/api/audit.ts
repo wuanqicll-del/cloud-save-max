@@ -12,3 +12,23 @@ export async function fetchAuditLogs(params: {
   return data
 }
 
+export async function deleteAllAuditLogs() {
+  const { data } = await http.delete('/audit-logs')
+  return data
+}
+
+export async function fetchAuditLogScheduler() {
+  const { data } = await http.get('/audit-logs/scheduler')
+  return data
+}
+
+export async function updateAuditLogScheduler(payload: {
+  enabled?: boolean
+  crontab?: string
+  timezone?: string
+  retention_days?: number
+}) {
+  const { data } = await http.patch('/audit-logs/scheduler', payload)
+  return data
+}
+

@@ -61,7 +61,6 @@ class Plex:
             response = requests.get(f"{self.url}/", headers=headers)
             if response.status_code == 200:
                 info = response.json()["MediaContainer"]
-                logger.info("Plex媒体库: %s v%s", info.get("friendlyName", ""), info.get("version", ""))
                 return True
             else:
                 logger.warning("Plex媒体库: 连接失败 状态码：%s", response.status_code)
@@ -80,7 +79,6 @@ class Plex:
                         refresh_url = f"{self.url}/library/sections/{library['key']}/refresh?path={folder_path}"
                         refresh_response = requests.get(refresh_url, headers=headers)
                         if refresh_response.status_code == 200:
-                            logger.info("🎞️ 刷新Plex媒体库：%s [%s] 成功", library.get("title"), folder_path)
                             return True
                         else:
                             logger.warning("🎞️ 刷新Plex媒体库：刷新请求失败 状态码：%s", refresh_response.status_code)

@@ -106,7 +106,6 @@ class Smartstrm:
             )
             response = response.json()
             if response.get("success"):
-                logger.info("SmartStrm 触发任务: 连接成功 %s", response.get("version", ""))
                 return response
             logger.warning("SmartStrm 触发任务：连接失败 %s", response.get("message", ""))
             return None
@@ -133,11 +132,6 @@ class Smartstrm:
             response = response.json()
             if response.get("success"):
                 task_data = response.get("task") or {}
-                logger.info(
-                    "SmartStrm 触发任务: [%s] %s 成功",
-                    (task_data or {}).get("name"),
-                    (task_data or {}).get("storage_path"),
-                )
             else:
                 logger.warning("SmartStrm 触发任务: %s", response.get("message"))
         except Exception as e:

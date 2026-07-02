@@ -347,11 +347,10 @@ class QuarkAdapter(BaseCloudDriveAdapter):
                 logger.warning("查询任务状态失败：%s", response)
                 return response
             if response["data"]["status"] == 2:
-                logger.info("任务[%s]执行完成", response["data"].get("task_title"))
                 break
             else:
                 if retry_index == 0:
-                    logger.debug("正在等待[%s]执行结果", response["data"].get("task_title"))
+                    pass
                 retry_index += 1
                 time.sleep(0.500)
         return response
@@ -496,7 +495,6 @@ class QuarkAdapter(BaseCloudDriveAdapter):
         response = self._send_request(
             "POST", url, json=payload, headers=headers, params=querystring
         ).json()
-        logger.info("执行签到: %s", response)
         if response.get("data"):
             return True, response["data"]["sign_daily_reward"]
         else:

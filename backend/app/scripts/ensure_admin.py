@@ -101,7 +101,6 @@ def main() -> None:
     )
     action = "已创建" if created else "已修复"
     reset_info = "，并重置密码" if password_reset else ""
-    logger.info("%s管理员账号: %s%s", action, args.username, reset_info)
 
 
 if __name__ == "__main__":

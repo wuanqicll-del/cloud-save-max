@@ -36,10 +36,6 @@ class Trigger_scan:
 
         if not str(self.global_enable).lower() == "true":
             if not task_config.get("enable"):
-                logger.info(
-                    "🟨 [%s] 未启用 trigger_scan（任务插件选项 enable=false，且 global_enable 未开启）",
-                    task.get("taskname", ""),
-                )
                 return task
 
         trigger_dir = str(self.trigger_dir or "").strip()
@@ -56,7 +52,6 @@ class Trigger_scan:
             savepath = str(task.get("savepath") or "").strip()
             with open(trigger_path, "w", encoding="utf-8") as f:
                 f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}|{taskname}|{savepath}\n")
-            logger.info("🟩 [trigger_scan] 已写入标记文件: %s (任务: %s)", trigger_path, taskname)
         except Exception as e:
             logger.error("🟥 [trigger_scan] 写入标记文件失败: %s", str(e))
 

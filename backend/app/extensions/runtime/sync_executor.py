@@ -224,27 +224,7 @@ class SyncExecutor:
 
         strategy = self._load_strategy(task, override=strategy_override)
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "sync start sync_task_id=%s mode=%s source=%s:%s target=%s:%s strategy=%s override=%s",
-                int(getattr(task, "id", 0) or 0),
-                mode,
-                source.type,
-                source.path,
-                target.type,
-                target.path,
-                json.dumps(
-                    {
-                        "overwrite": bool(strategy.overwrite),
-                        "one_way_delete_extras": bool(strategy.one_way_delete_extras),
-                        "force_refresh": bool(strategy.force_refresh),
-                        "concurrency": int(strategy.concurrency),
-                        "request_interval_seconds": float(strategy.request_interval_seconds),
-                        "openlist_copy_batch_size": int(strategy.openlist_copy_batch_size),
-                    },
-                    ensure_ascii=False,
-                ),
-                json.dumps(strategy_override or {}, ensure_ascii=False) if strategy_override else None,
-            )
+            pass
 
         task_id = int(getattr(task, "id", 0) or 0)
         lock_owner = f"{os.getpid()}:{threading.get_ident()}"
@@ -294,7 +274,7 @@ class SyncExecutor:
             _release_lock()
             raise
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("sync execution created sync_task_id=%s sync_execution_id=%s", int(task.id), int(execution.id))
+            pass
 
         cancel_checker = _CancelChecker(int(execution.id))
 
@@ -385,12 +365,6 @@ class SyncExecutor:
                         )
                     except Exception:
                         continue
-                logger.debug(
-                    "sync actions built sync_execution_id=%s total=%s head=%s",
-                    int(execution.id),
-                    len(actions),
-                    json.dumps(head, ensure_ascii=False),
-                )
 
             log.set_stage("apply")
             log.section("执行同步")
@@ -834,16 +808,7 @@ class SyncExecutor:
                 if not isinstance(content, list):
                     content = []
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "sync scan(openlist) dir=%s rel=%s page=%s per_page=%s refresh=%s items=%s total=%s",
-                        abs_dir,
-                        rel_dir,
-                        page,
-                        per_page,
-                        bool(refresh),
-                        len(content),
-                        total,
-                    )
+                    pass
                 for item in content:
                     if not isinstance(item, dict):
                         continue
@@ -1483,15 +1448,7 @@ class SyncExecutor:
                             or (cur_progress is None and prev_progress is not None)
                         )
                         if changed:
-                            logger.debug(
-                                "sync openlist task progress type=%s tid=%s state=%s raw_state=%s progress=%s pending=%s",
-                                task_type,
-                                tid,
-                                state,
-                                state_raw,
-                                progress,
-                                len(pending),
-                            )
+                            pass
 
                     terminal = False
                     if state in {"succeeded", "success", "finished", "done", "completed", "failed", "error", "canceled", "cancelled"}:
@@ -1526,16 +1483,7 @@ class SyncExecutor:
                 except Exception as e:
                     fail_counts[tid] = int(fail_counts.get(tid) or 0) + 1
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "sync openlist task_info failed type=%s tid=%s fail_count=%s err=%s http_status=%s api_code=%s api_message=%s",
-                            task_type,
-                            tid,
-                            fail_counts[tid],
-                            str(e).strip() or type(e).__name__,
-                            getattr(e, "http_status", None),
-                            getattr(e, "api_code", None),
-                            getattr(e, "api_message", None),
-                        )
+                        pass
                     if fail_counts[tid] >= 3:
                         try:
                             d = client.task_done(task_type)

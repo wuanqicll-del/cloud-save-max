@@ -370,7 +370,6 @@ class AccountManager:
         for name, adapter in adapters.items():
             if adapter.init():
                 success_count += 1
-                logger.info("账户 '%s' (%s) 登录成功: %s", name, adapter.DRIVE_TYPE, adapter.nickname)
             else:
                 logger.warning("账户 '%s' (%s) 登录失败", name, adapter.DRIVE_TYPE)
         return success_count

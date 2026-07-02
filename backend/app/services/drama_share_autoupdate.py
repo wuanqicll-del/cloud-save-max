@@ -128,12 +128,12 @@ def is_auto_update_task(db: Session, task: Any, *, respect_toggle: bool = True) 
         return False
     if respect_toggle and not _is_auto_update_enabled(task):
         return False
-    if str(getattr(task, "tmdb_media_type", "") or "").strip().lower() != "tv":
-        return False
-    try:
-        return int(getattr(task, "tmdb_id", 0) or 0) > 0
-    except Exception:
-        return False
+    # 有TMDB时必须是tv类型，没TMDB时也允许自动换链
+    tmdb_id = int(getattr(task, "tmdb_id", 0) or 0)
+    if tmdb_id > 0:
+        if str(getattr(task, "tmdb_media_type", "") or "").strip().lower() != "tv":
+            return False
+    return True
 
 
 # 兼容旧调用
@@ -351,7 +351,6 @@ def _search_candidates(db: Session, *, names: list[str], drive_type: str = "115"
     db_changed = False
     for keyword in names:
         items, changed, _msg = fetch_task_suggestions(db, keyword=keyword, deep=1, drive_type=drive_type, search_filter=search_filter, search_exclude=search_exclude, search_date_from=search_date_from, search_filter_mode=search_filter_mode, search_exclude_mode=search_exclude_mode)
-        logger.info("[shareurl_autoupdate] search keyword=%r -> %d items, msg=%s", keyword, len(items) if isinstance(items, list) else 0, _msg)
         if changed:
             db_changed = True
         if isinstance(items, list):
@@ -389,7 +388,6 @@ def _search_candidates(db: Session, *, names: list[str], drive_type: str = "115"
         title = str(item.get("taskname") or item.get("content") or "").strip()
         if not _title_matches_tmdb_names(title, names):
             stats["skip_tmdb_mismatch"] = int(stats.get("skip_tmdb_mismatch") or 0) + 1
-            logger.info("[shareurl_autoupdate] skip_tmdb_mismatch: %s title=%s", shareurl, title[:80])
             continue
         seen_urls.add(shareurl)
         filtered.append(item)
@@ -400,14 +398,11 @@ def _search_candidates(db: Session, *, names: list[str], drive_type: str = "115"
 def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: bool = True, tried_shareurls: set[str] | None = None) -> dict[str, Any]:
     task_id = int(getattr(task, "id", 0) or 0)
     task_uid = str(getattr(task, "task_uid", "") or "").strip()
-    logger.info("[shareurl_autoupdate] >>> START task_id=%s task_uid=%s", task_id, task_uid)
 
     if not is_auto_update_task(db, task, respect_toggle=respect_toggle):
-        logger.info("[shareurl_autoupdate] SKIP: not applicable")
         return {"checked": False, "updated": False, "reason": "not_applicable"}
 
     drive_type = _pick_drive_type(db, task) or "quark"
-    logger.info("[shareurl_autoupdate] drive_type=%s", drive_type)
 
     addition = _task_addition(task)
     search_filter = str(addition.get("search_filter") or "").strip()
@@ -424,10 +419,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
     file_filter_str = str(addition.get("file_filter") or "").strip()
     file_filter_words = [w.strip().lower() for w in file_filter_str.split("|") if w.strip()] if file_filter_str else []
     file_filter_is_any = str(addition.get("file_filter_mode") or "all").strip().lower() == "any"
-    logger.info(
-        "[shareurl_autoupdate] addition: search_filter=%r search_exclude=%r date_from=%r folder_filter=%r folder_exclude=%r dir_min_date=%r file_min_date=%r file_filter=%r preferred_only=%s filter_words=%r min_size=%r",
-        search_filter, search_exclude, search_date_from, folder_filter, folder_exclude, dir_min_date, file_min_date, file_filter_str, addition.get("preferred_only"), addition.get("filter_words"), addition.get("min_size"),
-    )
 
     # 创建重命名实例，用于预览阶段提取集数
     task_pattern = str(getattr(task, "pattern", "") or "").strip()
@@ -440,15 +431,10 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
             task_pattern, task_replace = mr.magic_regex_conv(task_pattern, task_replace)
             mr._resolved_pattern = task_pattern
             mr._resolved_replace = task_replace
-            logger.info("[shareurl_autoupdate] rename rule: pattern=%r replace=%r", task_pattern, task_replace)
         except Exception:
             return {"checked": False, "updated": False, "reason": "rename_rule_invalid"}
-    else:
-        logger.info("[shareurl_autoupdate] no rename rule configured")
 
     tmdb_context = _load_tmdb_context(db, task)
-    if tmdb_context is None:
-        return {"checked": False, "updated": False, "reason": "tmdb_context_missing"}
 
     old_shareurl = str(getattr(task, "shareurl", "") or "").strip()
     if not old_shareurl:
@@ -460,7 +446,7 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
     # 从快照获取当前已保存的实际进度
     from app.models.task_savepath_snapshot import TaskSavepathSnapshot
     from sqlalchemy import select as sa_select
-    tv_seasons = tmdb_context.detail.get("seasons") if isinstance(tmdb_context.detail, dict) else None
+    tv_seasons = tmdb_context.detail.get("seasons") if tmdb_context is not None and isinstance(tmdb_context.detail, dict) else None
     snapshot = db.execute(sa_select(TaskSavepathSnapshot).where(TaskSavepathSnapshot.task_uid == str(getattr(task, "task_uid", "") or "").strip())).scalars().first()
     if snapshot is not None:
         saved_season = getattr(snapshot, "saved_latest_season", None)
@@ -468,35 +454,32 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
         if saved_season is not None and saved_episode is not None:
             current_season = int(saved_season)
             current_episode = int(saved_episode)
-            logger.info("[shareurl_autoupdate] snapshot: S%sE%s", current_season, current_episode)
-        else:
-            logger.info("[shareurl_autoupdate] snapshot: no saved_latest")
-    else:
-        logger.info("[shareurl_autoupdate] no snapshot found")
 
-    logger.info("[shareurl_autoupdate] current progress: S%sE%s", current_season, current_episode)
+    # 如果当前进度已到TMDB最新集数，不需要换链（没有TMDB时跳过此判断）
+    if tmdb_context is not None:
+        from app.services.drama_update_progress import resolve_tmdb_latest_aired_episode
+        tmdb_detail = tmdb_context.detail if isinstance(tmdb_context.detail, dict) else {}
+        tmdb_latest_season, tmdb_latest_episode, _ = resolve_tmdb_latest_aired_episode(tmdb_detail)
+        if tmdb_latest_season is not None and tmdb_latest_episode is not None:
+            if current_season is not None and current_episode is not None:
+                if (current_season or 0, current_episode) >= (tmdb_latest_season or 1, tmdb_latest_episode):
+                    return {
+                        "checked": True,
+                        "updated": False,
+                        "reason": "already_latest",
+                        "current_season": current_season,
+                        "current_episode": current_episode,
+                    }
 
-    # 如果当前进度已到TMDB最新集数，不需要换链
-    from app.services.drama_update_progress import resolve_tmdb_latest_aired_episode
-    tmdb_detail = tmdb_context.detail if isinstance(tmdb_context.detail, dict) else {}
-    tmdb_latest_season, tmdb_latest_episode, _ = resolve_tmdb_latest_aired_episode(tmdb_detail)
-    if tmdb_latest_season is not None and tmdb_latest_episode is not None:
-        logger.info("[shareurl_autoupdate] TMDB latest: S%sE%s", tmdb_latest_season, tmdb_latest_episode)
-        if current_season is not None and current_episode is not None:
-            if (current_season or 0, current_episode) >= (tmdb_latest_season or 1, tmdb_latest_episode):
-                logger.info("[shareurl_autoupdate] SKIP: already at TMDB latest")
-                return {
-                    "checked": True,
-                    "updated": False,
-                    "reason": "already_latest",
-                    "current_season": current_season,
-                    "current_episode": current_episode,
-                }
+    # 搜索关键词：有TMDB用TMDB名称，没有用任务名称
+    search_names = tmdb_context.names if tmdb_context is not None else [str(getattr(task, "taskname", "") or "").strip()]
+    search_names = [n for n in search_names if n]
+    if not search_names:
+        return {"checked": False, "updated": False, "reason": "no_search_keyword"}
 
-    suggestions, suggestions_changed, search_stats = _search_candidates(db, names=tmdb_context.names, drive_type=drive_type, search_filter=search_filter, search_exclude=search_exclude, search_date_from=search_date_from, search_filter_mode=search_filter_mode, search_exclude_mode=search_exclude_mode)
-    logger.info("[shareurl_autoupdate] search returned %d suggestions", len(suggestions))
+    suggestions, suggestions_changed, search_stats = _search_candidates(db, names=search_names, drive_type=drive_type, search_filter=search_filter, search_exclude=search_exclude, search_date_from=search_date_from, search_filter_mode=search_filter_mode, search_exclude_mode=search_exclude_mode)
     for i, s in enumerate(suggestions[:10]):
-        logger.info("[shareurl_autoupdate] suggestion[%d] author=%s url=%s datetime=%s", i, s.get("share_author_name"), s.get("shareurl"), s.get("datetime"))
+        pass
     if suggestions:
         # 验证链接有效性，过滤失效链接
         from app.services.share_preview_batch import validate_share_links_streaming
@@ -515,13 +498,11 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                 url = str(s.get("shareurl") or "").strip()
                 if url in author_map and not str(s.get("share_author_name") or "").strip():
                     s["share_author_name"] = author_map[url]
-            logger.info("[shareurl_autoupdate] validated %d links, %d valid, %d invalid", len(shareurls_to_validate), len(valid_urls), len(shareurls_to_validate) - len(valid_urls))
             before_count = len(suggestions)
             suggestions = [s for s in suggestions if str(s.get("shareurl") or "").strip() in valid_urls]
             removed = before_count - len(suggestions)
             if removed:
                 search_stats["skip_invalid"] = removed
-                logger.info("[shareurl_autoupdate] skip_invalid: %d", removed)
             # 只看优选分享者过滤
             preferred_only = bool(addition.get("preferred_only"))
             if preferred_only:
@@ -534,7 +515,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                     removed = before_count - len(suggestions)
                     if removed:
                         search_stats["skip_non_preferred"] = removed
-                        logger.info("[shareurl_autoupdate] skip_non_preferred: %d", removed)
             # 屏蔽分享者过滤
             from app.services.resource_search import filter_blocked_sharers
             before_count = len(suggestions)
@@ -542,17 +522,9 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
             removed = before_count - len(suggestions)
             if removed:
                 search_stats["skip_blocked"] = removed
-                logger.info("[shareurl_autoupdate] skip_blocked: %d", removed)
-    logger.info("[shareurl_autoupdate] after filters: %d suggestions remaining", len(suggestions))
     for i, s in enumerate(suggestions[:10]):
-        logger.info("[shareurl_autoupdate] filtered[%d] author=%s url=%s", i, s.get("share_author_name"), s.get("shareurl"))
+        pass
     if not suggestions:
-        logger.info(
-            "[shareurl_autoupdate] no_candidates task_id=%s task_uid=%s stats=%s",
-            int(getattr(task, "id", 0) or 0),
-            str(getattr(task, "task_uid", "") or ""),
-            json.dumps(search_stats, ensure_ascii=False),
-        )
         return {
             "checked": True,
             "updated": False,
@@ -567,22 +539,7 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
         current_episode=current_episode,
         tv_seasons=tv_seasons if isinstance(tv_seasons, list) else None,
     )
-    logger.info("[shareurl_autoupdate] preview_suggestions: %d picked from %d total", len(preview_suggestions), len(suggestions))
     if not preview_suggestions:
-        logger.info(
-            "[shareurl_autoupdate] no_better_candidate_before_preview task_id=%s task_uid=%s current=S%sE%s stats=%s",
-            int(getattr(task, "id", 0) or 0),
-            str(getattr(task, "task_uid", "") or ""),
-            str(current_season or ""),
-            str(current_episode or ""),
-            json.dumps(
-                {
-                    "search": search_stats,
-                    "suggestions": len(suggestions),
-                },
-                ensure_ascii=False,
-            ),
-        )
         return {
             "checked": True,
             "updated": False,
@@ -602,7 +559,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
     from app.services.drama_share_consecutive import _parse_size
     min_size = _parse_size(min_size_str) if min_size_str else 0
     filter_words = [w.strip() for w in filter_words_str.split("|") if w.strip()] if filter_words_str else []
-    logger.info("[shareurl_autoupdate] filters: min_size=%d(%s) filter_words=%s file_filter=%s", min_size, min_size_str, filter_words, file_filter_words)
 
     preview_stats: dict[str, Any] = {
         "preview_candidates": len(preview_suggestions),
@@ -642,9 +598,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
 
     # 排序：优选优先 > 发布时间从新到旧
     valid_candidates.sort(key=lambda x: (x[3], x[4]), reverse=True)
-    logger.info("[shareurl_autoupdate] sorted %d candidates (preferred_set=%s, blocked_sharers=%s)", len(valid_candidates), preferred_set, None)
-    for i, (sug, cs, ce, pref, pts) in enumerate(valid_candidates[:10]):
-        logger.info("[shareurl_autoupdate] candidate[%d] preferred=%s pub_ts=%.0f author=%s url=%s", i, pref, pts, sug.get("share_author_name"), sug.get("shareurl"))
 
     # 依次尝试每个候选，获取文件列表检查连贯性
     from app.services.share_preview_batch import fetch_share_file_list_grouped
@@ -666,7 +619,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
             continue
         # 按子目录分组获取文件列表
         groups = fetch_share_file_list_grouped(db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode)
-        logger.info("[shareurl_autoupdate] candidate url=%s author=%s -> %d groups (folder_filter=%r folder_exclude=%r)", shareurl, suggestion.get("share_author_name"), len(groups), folder_filter, folder_exclude)
         if not groups:
             preview_stats["skip_unpreviewable"] = int(preview_stats.get("skip_unpreviewable") or 0) + 1
             if tried_shareurls is not None:
@@ -694,7 +646,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                     else:
                         dir_date = str(val)[:10]
                     if dir_date < dir_min_date:
-                        logger.info("[shareurl_autoupdate] skip_old_dir: fid=%s date=%s < %s", fid, dir_date, dir_min_date)
                         preview_stats["skip_old_dir"] = int(preview_stats.get("skip_old_dir") or 0) + 1
                         continue
                 except Exception:
@@ -710,7 +661,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                 tv_seasons=tv_seasons if isinstance(tv_seasons, list) else None,
                 mr=mr,
             )
-            logger.info("[shareurl_autoupdate]   group fid=%s files=%d consecutive=%s episodes=%s max_ep=%d dir_ts=%s", fid, len(file_list), is_consecutive, consecutive_episodes, max_ep, dir_updated_at)
             group_ts = 0
             for f in file_list:
                 try:
@@ -725,7 +675,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                     candidate_max_ep = ep
                     candidate_best_ts = group_ts
                     candidate_best_fid = fid
-                    logger.info("[shareurl_autoupdate] new best: ep=%d ts=%d fid=%s url=%s author=%s", ep, group_ts, fid, shareurl, suggestion.get("share_author_name"))
             elif max_ep > current_ep_int:
                 # 连贯性失败但有缺口后面的集数，记录为备用
                 if max_ep > candidate_later_max_ep or (max_ep == candidate_later_max_ep and group_ts > candidate_later_ts):
@@ -743,7 +692,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
             best_episode = candidate_episode
             best_pdir_fid = candidate_best_fid
             best_taskname = str(suggestion.get("taskname") or suggestion.get("content") or "").strip()
-            logger.info("[shareurl_autoupdate] consecutive check passed: shareurl=%s max_ep=%s fid=%s", shareurl, candidate_max_ep, candidate_best_fid)
             break
         elif candidate_has_later:
             # 备用候选池：不标记已尝试
@@ -755,18 +703,15 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                 "max_ep": candidate_later_max_ep,
                 "ts": candidate_later_ts,
             })
-            logger.info("[shareurl_autoupdate] fallback candidate: url=%s max_ep=%d fid=%s", shareurl, candidate_later_max_ep, candidate_later_fid)
         else:
             # 没有用处的链接，标记已尝试
             if tried_shareurls is not None:
                 tried_shareurls.add(shareurl)
             preview_stats["skip_not_consecutive"] = int(preview_stats.get("skip_not_consecutive") or 0) + 1
-            logger.info("[shareurl_autoupdate] consecutive check FAILED: url=%s author=%s", shareurl, suggestion.get("share_author_name"))
 
     # 主候选池没有找到，尝试备用候选池（同样的连贯性检查逻辑）
     if best_shareurl is None and fallback_candidates:
         fallback_candidates.sort(key=lambda x: (x["max_ep"], x["ts"]), reverse=True)
-        logger.info("[shareurl_autoupdate] trying %d fallback candidates", len(fallback_candidates))
         for fb in fallback_candidates:
             fb_url = str(fb["suggestion"].get("shareurl") or "").strip()
             if tried_shareurls is not None and fb_url in tried_shareurls:
@@ -805,7 +750,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                     tv_seasons=tv_seasons if isinstance(tv_seasons, list) else None,
                     mr=mr,
                 )
-                logger.info("[shareurl_autoupdate]   fallback group fid=%s files=%d consecutive=%s episodes=%s max_ep=%d", fid, len(file_list), is_consecutive, consecutive_episodes, max_ep)
                 group_ts = 0
                 for f in file_list:
                     try:
@@ -830,21 +774,12 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                 best_pdir_fid = fb_best_fid
                 best_taskname = str(fb["suggestion"].get("taskname") or fb["suggestion"].get("content") or "").strip()
                 candidate_max_ep = fb_max_ep
-                logger.info("[shareurl_autoupdate] fallback passed: url=%s max_ep=%d fid=%s", fb_url, fb_max_ep, fb_best_fid)
                 break
             else:
                 # 备用候选也没通过，不标记已尝试，下次还能用
-                logger.info("[shareurl_autoupdate] fallback not passed: url=%s", fb_url)
+                pass
 
     if best_shareurl is None:
-        logger.info(
-            "[shareurl_autoupdate] no_better_candidate_after_preview task_id=%s task_uid=%s current=S%sE%s stats=%s",
-            int(getattr(task, "id", 0) or 0),
-            str(getattr(task, "task_uid", "") or ""),
-            str(current_season or ""),
-            str(current_episode or ""),
-            json.dumps({"search": search_stats, "preview": preview_stats}, ensure_ascii=False),
-        )
         return {
             "checked": True,
             "updated": False,
@@ -859,7 +794,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
         best_shareurl,
         str(best_pdir_fid or ""),
     )
-    logger.info("[shareurl_autoupdate] rewrite: best_shareurl=%s best_pdir_fid=%s new_shareurl=%s", best_shareurl, best_pdir_fid, new_shareurl)
     if not new_shareurl or new_shareurl == old_shareurl:
         return {
             "checked": True,
@@ -873,16 +807,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
     task.shareurl = new_shareurl
     db.flush()
 
-    logger.info(
-        "[shareurl_autoupdate] task_id=%s old=%s new=%s current=S%sE%s next=S%sE%s",
-        int(getattr(task, "id", 0) or 0),
-        old_shareurl,
-        new_shareurl,
-        str(current_season or ""),
-        str(current_episode or ""),
-        str(best_season),
-        str(best_episode),
-    )
     return {
         "checked": True,
         "updated": True,

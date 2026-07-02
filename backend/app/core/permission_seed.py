@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.core.permissions import (
     AUDIT_READ,
+    AUDIT_WRITE,
     DRIVE_ACCOUNT_READ,
     DRIVE_ACCOUNT_WRITE,
     NOTIFY_READ,
@@ -23,6 +24,7 @@ from app.core.permissions import (
 
 PERMISSIONS_SEED: list[tuple[str, str]] = [
     (AUDIT_READ, "审计日志查看"),
+    (AUDIT_WRITE, "审计日志管理"),
     (USER_READ, "用户查看"),
     (USER_WRITE, "用户管理"),
     (ROLE_READ, "角色查看"),

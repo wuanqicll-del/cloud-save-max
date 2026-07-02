@@ -238,8 +238,8 @@ class BaiduAdapter(BaseCloudDriveAdapter):
             if match:
                 self._bdstoken = match.group(1)
                 return self._bdstoken
-        except Exception as e:
-            logger.debug(f"[Baidu] 获取 bdstoken 失败: {e}")
+        except Exception:
+            pass
 
         return ""
 
@@ -417,7 +417,6 @@ class BaiduAdapter(BaseCloudDriveAdapter):
         resp = self._session.get(signin_url, params=signin_params, headers=headers, timeout=20)
         resp.raise_for_status()
         signin_data = _read_json(resp)
-        logger.debug("signin_data=%s", signin_data)
         raw["signin"] = signin_data
         errno = signin_data.get("errno") or signin_data.get("error_code") or 0
         if errno and int(errno) != 0:
@@ -491,7 +490,6 @@ class BaiduAdapter(BaseCloudDriveAdapter):
             "dir": remotepath,
         }
         resp = self._request("POST", url, params=params)
-        logger.debug(f"[Baidu] _api_list url={url} params={params},resp={self._check_response(resp.json())}")
         return self._check_response(resp.json())
 
     def _api_makedir(self, directory: str) -> Dict:
@@ -518,6 +516,7 @@ class BaiduAdapter(BaseCloudDriveAdapter):
         将 fid 解析为百度网盘 API 可用的路径。
         
         fid 可能是:
+            pass
         - 路径字符串（以 / 开头），直接返回
         - "0" 或空，表示根目录，返回 /
         - fs_id（纯数字字符串），通过逐级遍历目录树查找
@@ -543,13 +542,11 @@ class BaiduAdapter(BaseCloudDriveAdapter):
                     info = self._api_list(current_dir)
                     items = info.get("list", [])
                 except Exception as e:
-                    logger.debug(f"[Baidu] 列出 {current_dir} 失败: {e}")
                     continue
 
                 for item in items:
                     if str(item.get("fs_id")) == fid:
                         path = item.get("path", "")
-                        logger.debug(f"[Baidu] fid={fid} 解析为路径: {path}")
                         return path
                     if item.get("isdir") == 1:
                         next_dirs.append(item.get("path", ""))
@@ -745,7 +742,6 @@ class BaiduAdapter(BaseCloudDriveAdapter):
                     info = self._api_list_shared_paths(current_path, uk, share_id)
                     items = info.get("list", [])
                 except Exception as e:
-                    logger.debug(f"[Baidu] 列出分享目录 {current_path} 失败: {e}")
                     continue
 
                 for item in items:

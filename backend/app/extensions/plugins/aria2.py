@@ -64,13 +64,11 @@ class Aria2:
                     file_fids.append(node.data.get("fid"))
                     file_paths.append(node.data.get("path"))
             if not file_fids:
-                logger.info("Aria2下载: 没有下载任务，跳过")
                 return
             download_return, cookie = account.download(file_fids)
             file_urls = [item["download_url"] for item in download_return["data"]]
             for index, file_url in enumerate(file_urls):
                 file_path = file_paths[index]
-                logger.info("📥 Aria2下载: %s", file_path)
                 if task_config.get("save_path"):
                     file_name = os.path.basename(file_path)
                     save_path = task_config["save_path"].strip("/")
@@ -115,7 +113,6 @@ class Aria2:
         """检查与 Aria2 的连接."""
         response = self._make_rpc_request("aria2.getVersion")
         if response.get("result"):
-            logger.info("Aria2下载: v%s", response["result"].get("version"))
             return True
         else:
             logger.warning("Aria2下载: 连接失败%s", response.get("error"))

@@ -383,7 +383,6 @@ class BaseCloudDriveAdapter(ABC):
                 dir_paths_exist_arr.append(
                     {"file_path": dir_path, "fid": new_dir["fid"]}
                 )
-                logger.info("创建文件夹：%s", dir_path)
             else:
                 logger.warning("创建文件夹：%s 失败, %s", dir_path, mkdir_return.get("message", "未知错误"))
 

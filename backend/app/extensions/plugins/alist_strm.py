@@ -51,7 +51,6 @@ class Alist_strm:
                     for item in matchs
                     if item[0] in config_id_str.split(",")
                 ]
-                logger.info("alist-strm配置运行: %s", config_name)
                 return True
             else:
                 logger.warning("alist-strm配置运行: 匹配失败，请检查网络连通和cookie有效性")
@@ -77,7 +76,6 @@ class Alist_strm:
             match = re.search(r'role="alert">\s*([^<]+)\s*<button', html_content)
             if match:
                 alert = match.group(1).strip()
-                logger.info("🔗 alist-strm配置运行: %s", alert)
                 return True
             else:
                 logger.warning("🔗 alist-strm配置运行: 失败")

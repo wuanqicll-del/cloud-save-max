@@ -171,16 +171,7 @@ class OpenListClient:
             try:
                 t0 = time.monotonic()
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "OpenList request method=%s endpoint=%s attempt=%s/%s timeout=%.2f params=%s json=%s",
-                        str(method or "GET").upper(),
-                        str(endpoint or ""),
-                        attempt + 1,
-                        retries + 1,
-                        timeout,
-                        _summarize(params),
-                        _summarize(json),
-                    )
+                    pass
                 resp = self.session.request(
                     method=str(method or "GET").upper(),
                     url=url,
@@ -202,34 +193,15 @@ class OpenListClient:
                     if ensure_success:
                         self._ensure_api_success(payload, http_status=resp.status_code)
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "OpenList response endpoint=%s status=%s cost_ms=%.1f json=%s",
-                            str(endpoint or ""),
-                            resp.status_code,
-                            cost_ms,
-                            _summarize(payload),
-                        )
+                        pass
                     return payload
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "OpenList response endpoint=%s status=%s cost_ms=%.1f content_type=%s body=%s",
-                        str(endpoint or ""),
-                        resp.status_code,
-                        cost_ms,
-                        _truncate(content_type, 5000),
-                        _summarize(resp.content),
-                    )
+                    pass
                 return resp.content
             except Exception as e:
                 last_exc = e
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "OpenList request failed endpoint=%s attempt=%s/%s err=%s",
-                        str(endpoint or ""),
-                        attempt + 1,
-                        retries + 1,
-                        str(e).strip() or type(e).__name__,
-                    )
+                    pass
                 if attempt >= retries:
                     break
                 self._sleep(attempt)

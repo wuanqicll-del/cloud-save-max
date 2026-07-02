@@ -50,7 +50,6 @@ class Emby:
             response = requests.request("GET", url, headers=headers, params=querystring)
             if "application/json" in response.headers["Content-Type"]:
                 response = response.json()
-                logger.info("Emby媒体库: %s v%s", response.get("ServerName", ""), response.get("Version", ""))
                 return True
             else:
                 logger.warning("Emby媒体库: 连接失败 %s", response.text)
@@ -73,7 +72,6 @@ class Emby:
         try:
             response = requests.request("POST", url, headers=headers, params=querystring)
             if response.text == "":
-                logger.info("🎞️ 刷新Emby媒体库：成功")
                 return True
             else:
                 logger.warning("🎞️ 刷新Emby媒体库：%s", response.text)
@@ -104,7 +102,6 @@ class Emby:
                 if response.get("Items"):
                     for item in response["Items"]:
                         if item["IsFolder"]:
-                            logger.info("🎞️ 《%s》匹配到Emby媒体库ID：%s", item.get("Name"), item.get("Id"))
                             return item["Id"]
             else:
                 logger.warning("🎞️ 搜索Emby媒体库：%s", response.text)

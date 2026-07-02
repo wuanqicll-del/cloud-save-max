@@ -364,7 +364,7 @@ class Openlist:
                 target = self._norm_path(posixpath.join(mount_path, rel))
                 ok = self.refresh_dir(target, driver=driver or None, password=password)
                 if ok:
-                    logger.info("%s: 刷新目录成功 %s", self.plugin_name, target)
+                    pass
                 else:
                     logger.warning("%s: 刷新目录失败 %s", self.plugin_name, target)
             return task

@@ -306,7 +306,6 @@ def fetch_share_file_list(
     folder_exclude_keywords = [kw.strip().lower() for kw in folder_exclude.split("|") if kw.strip()] if folder_exclude else []
     folder_filter_is_any = str(folder_filter_mode or "all").strip().lower() == "any"
     folder_exclude_is_all = str(folder_exclude_mode or "any").strip().lower() == "all"
-    logger.info("[share_preview] folder config: filter=%r exclude=%r filter_keywords=%r exclude_keywords=%r", folder_filter, folder_exclude, folder_keywords, folder_exclude_keywords)
 
     def _collect_files(fid: str, depth: int, is_root: bool = True) -> None:
         nonlocal changed
@@ -329,7 +328,6 @@ def fetch_share_file_list(
                 if not sub_fid or sub_fid == fid:
                     continue
                 name_lower = name.lower()
-                logger.info("[share_preview] dir item: %r (hex=%s)", name, name.encode("utf-8").hex())
                 # 过滤：包含关键词的目录直接跳过，不进入
                 if folder_exclude_keywords:
                     if folder_exclude_is_all:
@@ -420,7 +418,6 @@ def fetch_share_file_list_grouped(
     folder_exclude_keywords = [kw.strip().lower() for kw in folder_exclude.split("|") if kw.strip()] if folder_exclude else []
     folder_filter_is_any = str(folder_filter_mode or "all").strip().lower() == "any"
     folder_exclude_is_all = str(folder_exclude_mode or "any").strip().lower() == "all"
-    logger.info("[share_preview] folder config: filter=%r exclude=%r filter_keywords=%r exclude_keywords=%r", folder_filter, folder_exclude, folder_keywords, folder_exclude_keywords)
 
     def _collect_from_dir(fid: str, dir_ts: Any = None, dir_name: str = "") -> list[tuple[list[dict[str, Any]], str, Any]]:
         """收集目录下的文件，按层级分组返回。
@@ -445,7 +442,6 @@ def fetch_share_file_list_grouped(
                     collect_files = any(kw in name_lower for kw in folder_keywords)
                 else:
                     collect_files = all(kw in name_lower for kw in folder_keywords)
-                logger.info("[share_preview] folder_filter check: name=%r keywords=%r collect=%s", f_name, folder_keywords, collect_files)
             for item in raw_items:
                 if not isinstance(item, dict):
                     continue
@@ -456,16 +452,13 @@ def fetch_share_file_list_grouped(
                     if not sub_fid or sub_fid == f:
                         continue
                     name_lower = name.lower()
-                    logger.info("[share_preview] dir item: %r (hex=%s)", name, name.encode("utf-8").hex())
                     # 过滤：包含关键词的目录直接跳过，不进入
                     if folder_exclude_keywords:
                         if folder_exclude_is_all:
                             if all(kw in name_lower for kw in folder_exclude_keywords):
-                                logger.info("[share_preview] folder_exclude skip: %s", name)
                                 continue
                         else:
                             if any(kw in name_lower for kw in folder_exclude_keywords):
-                                logger.info("[share_preview] folder_exclude skip: %s", name)
                                 continue
                     # 递归进入子目录（无论是否匹配筛选词）
                     groups.extend(_walk(sub_fid, depth + 1, _pick_updated_at(item), f_name=name, is_root=False))
@@ -822,8 +815,8 @@ def validate_share_links_streaming(db: Session, shareurls: list[str]):
         if drive_type is None:
             yield ShareValidateItemOut(shareurl=url, ok=False, message="无法识别的网盘分享链接")
             continue
-        # 非夸克网盘：跳过验证，直接标记有效（只有夸克需要验证+分享者过滤）
-        if drive_type != "quark":
+        # 115网盘：跳过验证，直接标记有效
+        if drive_type == "115":
             yield ShareValidateItemOut(shareurl=url, ok=True)
             continue
         per_drive.setdefault(str(drive_type), []).append(url)

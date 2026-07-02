@@ -2,7 +2,7 @@
 import { ElMessageBox } from 'element-plus'
 
 import { fetchTMDBDetail, searchTMDB } from '@/api/media'
-import { browseDrive, fetchMagicRegex, fetchTasks, previewShare, validateShareLinksStream } from '@/api/tasks'
+import { browseDrive, fetchMagicRegex, fetchTasks, mkdirDrive, previewShare, validateShareLinksStream } from '@/api/tasks'
 import { fetchTMDBConfig } from '@/api/tmdb'
 import { fetchTaskSuggestions } from '@/api/resourceSearch'
 import { fetchSharerFilterSettings } from '@/api/systemSettings'
@@ -99,7 +99,7 @@ const state = reactive({
   tmdb_id: null as number | null,
   tmdb_media_type: null as string | null,
   runweek_mode: 'manual' as 'auto' | 'manual',
-  runweek: [] as number[],
+  runweek: [1, 2, 3, 4, 5, 6, 7] as number[],
   update_subdir_resave_mode: 'none',
   addition: {} as Record<string, any>,
   extra: {} as Record<string, any>,
@@ -1377,7 +1377,7 @@ function syncState() {
   magicRegex.selectedKey = ''
 
   const runweek = Array.isArray(state.extra.runweek) ? state.extra.runweek : []
-  state.runweek = runweek.map((item: any) => Number(item)).filter((item: any) => item >= 1 && item <= 7)
+  state.runweek = runweek.length > 0 ? runweek.map((item: any) => Number(item)).filter((item: any) => item >= 1 && item <= 7) : (!isEditing.value ? [1, 2, 3, 4, 5, 6, 7] : [])
   const mode = String((state.extra as any)?.runweek_mode || '').trim().toLowerCase()
   state.runweek_mode = mode === 'auto' ? 'auto' : 'manual'
   manualRunweekBackup.value = clone(state.runweek || [])
@@ -1439,14 +1439,6 @@ watch(
 
     if (!tmdbLink.configured && state.runweek_mode === 'auto') {
       state.runweek_mode = 'manual'
-    }
-
-    if (!isEditing.value && state.runweek_mode === 'manual') {
-      const id = Number(state.tmdb_id) || 0
-      const mt = String(state.tmdb_media_type || '').toLowerCase()
-      if (tmdbLink.configured && id > 0 && mt === 'tv') {
-        state.runweek_mode = 'auto'
-      }
     }
 
     if (state.runweek_mode === 'auto') {
@@ -1592,6 +1584,21 @@ async function submit() {
     addition: clone(state.addition || {}),
     extra: buildExtraPayload(),
   })
+}
+
+async function createSaveDir() {
+  const path = String(state.savepath || '').trim()
+  if (!path) return ElMessage.warning('请先输入或选择保存路径')
+  try {
+    await mkdirDrive({ dir_path: path, account_name: state.account_choice !== '__AUTO__' ? state.account_choice : null })
+    ElMessage.success('目录已创建')
+  } catch (e: any) {
+    if (e?.message?.includes('已存在') || e?.message?.includes('exist')) {
+      ElMessage.info('目录已存在')
+    } else {
+      ElMessage.error(e?.message || '创建失败')
+    }
+  }
 }
 
 async function openDrivePicker() {
@@ -2282,9 +2289,12 @@ async function submitSaveTemplate() {
         <el-form-item label="保存路径">
           <el-input v-model="state.savepath" placeholder="/剧集/某电视剧">
             <template #append>
-              <el-button @click="openDrivePicker">选择目录</el-button>
+              <el-button style="margin-right: -4px" @click="openDrivePicker">选择</el-button>
+              <span style="margin: 0 -4px; color: var(--el-border-color)">|</span>
+              <el-button style="margin-left: -4px" @click="createSaveDir">新建</el-button>
             </template>
           </el-input>
+          <div class="drawer-form__hint">选择目录后点击"新建"可提前创建目录，便于关联同步任务时直接使用</div>
         </el-form-item>
         <el-form-item label="关键词过滤">
           <el-select

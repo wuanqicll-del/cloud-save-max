@@ -10,14 +10,6 @@ from natsort import natsorted
 
 class MagicRename:
     magic_regex: dict[str, dict[str, str]] = {
-        "$TV_REGEX": {
-            "pattern": r".*?([Ss]\d{1,2})?(?:[第EePpXx\.\-\_\( ]{1,2}|^)(\d{1,3})(?!\d).*?\.(mp4|mkv)",
-            "replace": r"\1E\2.\3",
-        },
-        "$BLACK_WORD": {
-            "pattern": r"^(?!.*纯享)(?!.*加更)(?!.*超前企划)(?!.*训练室)(?!.*蒸蒸日上).*",
-            "replace": "",
-        },
         "$TV_MAGIC": {
             "pattern": r".*\.(mp4|mkv|mov|m4v|avi|mpeg|ts|zip)$",
             "replace": r"{TASKNAME}.{SXX}E{E0}.{EXT}",

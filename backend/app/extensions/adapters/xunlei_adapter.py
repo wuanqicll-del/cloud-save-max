@@ -90,13 +90,11 @@ def _config_saver_factory(config_path: str):
                     acc["cookie"] = new_refresh_token
                     acc["_token_updated_at"] = current_time
                     updated = True
-                    logger.debug(f"[Xunlei] 已更新账户 {acc.get('name', 'unknown')} 的 refresh_token (时间戳: {current_time})")
                     if account_name:
                         break
 
             if updated:
                 Config.write_json(config_path, config)
-                logger.debug("[Xunlei] refresh_token 已保存到配置文件")
                 return True
             else:
                 logger.warning("[Xunlei] 未找到需要更新的迅雷网盘账户")
@@ -213,7 +211,6 @@ class XunleiAdapter(BaseCloudDriveAdapter):
                 old_token = self._refresh_token
                 self._refresh_token = new_refresh
                 self._save_refresh_token()
-                logger.debug("[Xunlei] refresh_token 已更新")
 
             # 提取用户信息
             self._user_id = str(result.get("user_id", ""))
@@ -223,7 +220,6 @@ class XunleiAdapter(BaseCloudDriveAdapter):
             self._session.headers["Authorization"] = f"Bearer {self._access_token}"
             self._session.headers["x-device-id"] = self._device_id
 
-            logger.debug(f"[Xunlei] access_token 刷新成功，用户: {self._user_name or self._user_id}")
             return True
 
         except Exception as e:
@@ -268,7 +264,6 @@ class XunleiAdapter(BaseCloudDriveAdapter):
             # 更新 session headers
             self._session.headers["x-captcha-token"] = self._captcha_token
 
-            logger.debug("[Xunlei] captcha_token 获取成功")
             return True
 
         except Exception as e:
@@ -758,7 +753,7 @@ class XunleiAdapter(BaseCloudDriveAdapter):
                             pass
 
                     if retry_index > 0:
-                        logger.debug("")
+                        pass
 
                     return {
                         "status": 200,
@@ -778,7 +773,7 @@ class XunleiAdapter(BaseCloudDriveAdapter):
 
                 # 任务进行中
                 if retry_index == 0:
-                    logger.debug(f"[Xunlei] 等待任务执行: {result.get('name', task_id)}")
+                    pass
 
                 retry_index += 1
                 time.sleep(0.5)
@@ -931,6 +926,7 @@ class XunleiAdapter(BaseCloudDriveAdapter):
         解析迅雷网盘分享链接
 
         支持格式:
+            pass
         - https://pan.xunlei.com/s/{share_id}
         - https://pan.xunlei.com/s/{share_id}#/list/{folder_id}
         - https://pan.xunlei.com/s/{share_id}?pwd=xxxx

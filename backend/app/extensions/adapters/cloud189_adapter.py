@@ -905,7 +905,6 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
         return {"supported": True, "ok": True, "message": message, "reward": bonus_value, "data": data}
 
     def init(self) -> Any:
-        logger.info(f"[cloud189] adapter init: account={self._account_name}")
         if self._cookie_kv.get("cookiejar") or self._ssoncookie or self._cookie_kv.get("SSON") or self._cookie_kv.get("DEVICEID") or self._cookie_kv.get("OPENINFO"):
             try:
                 if self._login_by_cookie():
@@ -1125,15 +1124,6 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
                         "fileName": str(j.get("fileName") or ""),
                     }
                 if file_id:
-                    logger.info(
-                        "[cloud189] getShareInfoByCodeV2 non_ok share=%s res_code=%s res_msg=%s share_mode=%s file_id=%s share_id=%s",
-                        self._tail(share_code),
-                        res_code,
-                        res_msg,
-                        share_mode,
-                        self._tail(file_id),
-                        self._tail(str(j.get("shareId") or "")),
-                    )
                     return {
                         "shareId": str(j.get("shareId") or ""),
                         "fileId": file_id,
@@ -1187,11 +1177,6 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
         if not share_code or not access_code:
             return None
         url = f"{self.HOST_URL}/api/open/share/checkAccessCode.action"
-        logger.info(
-            "[cloud189] checkAccessCode request share=%s passcode=%s",
-            self._tail(share_code),
-            self._mask_passcode(access_code),
-        )
         resp = self._session.get(
             url,
             params={
@@ -1223,13 +1208,6 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
         res_code = str(j.get("res_code") or j.get("resCode") or "").strip()
         res_msg = str(j.get("res_message") or j.get("resMessage") or "").strip()
         share_id = str(j.get("shareId") or "").strip()
-        logger.info(
-            "[cloud189] checkAccessCode response share=%s res_code=%s res_msg=%s share_id=%s",
-            self._tail(share_code),
-            res_code,
-            res_msg,
-            self._tail(share_id),
-        )
         if not share_id:
             logger.warning(
                 "[cloud189] checkAccessCode failed share=%s res_code=%s res_msg=%s passcode=%s body=%s",
@@ -1928,7 +1906,7 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
                 status = j.get("taskStatus")
                 if self._debug:
                     try:
-                        logger.info(f"[cloud189] delete poll: taskId={task_id} try={tries} status={status}")
+                        pass
                     except Exception:
                         pass
                 if status in (4, "4"):
@@ -1960,7 +1938,7 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
                 except Exception:
                     msg = str(last_j)
                 try:
-                    logger.info(f"[cloud189] delete verify remaining={remaining[:20]} task={msg[:800]}")
+                    pass
                 except Exception:
                     pass
             return {"code": 0, "message": "success", "data": {}}
@@ -2035,10 +2013,7 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
             raise RuntimeError("创建任务失败")
         if self._debug:
             try:
-                logger.info(
-                    f"[cloud189] createBatchTask ok: type={task_type} taskId={task_id} "
-                    f"items={len(task_infos)} target={target_folder_id} shareId={share_id}"
-                )
+                pass
             except Exception:
                 pass
         return task_id
@@ -2048,7 +2023,7 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
         url = f"{self.HOST_URL}/checkBatchTask.action"
         j = self._request_json("POST", url, data={"type": task_type, "taskId": task_id}, timeout=15)
         if self._debug:
-            logger.info(f"checkBatchTask resp: {j}")
+            pass
         if not isinstance(j, dict):
             raise RuntimeError("查询任务失败")
         return j
@@ -2063,7 +2038,6 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
         if self._debug:
             try:
                 t = (resp.text or "").replace("\r", " ").replace("\n", " ").strip()
-                logger.info(f"[cloud189] openBatchCreate: type={task_type} http={resp.status_code} body={t[:800]}")
             except Exception:
                 pass
         resp.raise_for_status()
@@ -2089,7 +2063,6 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
         if self._debug:
             try:
                 t = (resp.text or "").replace("\r", " ").replace("\n", " ").strip()
-                logger.info(f"[cloud189] openBatchCheck: type={task_type} taskId={task_id} http={resp.status_code} body={t[:800]}")
             except Exception:
                 pass
         resp.raise_for_status()
@@ -2309,7 +2282,7 @@ FlhDeqVOG094hFJvZeK4OzA6HVwzwnEW5vIZ7d+u61RV1bsFxmB68+8JXs3ycGcE
                 last_j = j
                 if self._debug and tries % 10 == 0:
                     try:
-                        logger.info(f"[cloud189] checkBatchTask: taskId={task_id} try={tries} status={status} body={_snip_obj(j)}")
+                        pass
                     except Exception:
                         pass
                 if status in (4, "4"):

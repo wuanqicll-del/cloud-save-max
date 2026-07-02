@@ -328,7 +328,6 @@ class UCAdapter(BaseCloudDriveAdapter):
             "pdir_fid": "0",
             "scene": "link",
         }
-        logger.debug(f"[UC] 转存文件参数: {payload}")
         try:
             response = self._send_request("POST", url, json=payload, params=params)
             result = self._safe_json(response)
@@ -338,7 +337,6 @@ class UCAdapter(BaseCloudDriveAdapter):
             if "capacity limit" in msg.lower():
                 logger.error("[UC] 网盘容量不足，无法转存")
                 return {"code": 1, "status": 400, "message": "UC网盘容量不足，请清理空间后重试", "data": {}}
-            logger.debug(f"[UC] 转存结果: {result}")
             return result
         except Exception as e:
             logger.error(f"[UC] 转存失败: {e}")
@@ -375,7 +373,6 @@ class UCAdapter(BaseCloudDriveAdapter):
         retry_index = 0
         max_retries = 60
         result = {"status": 500, "code": 1, "message": "任务查询超时"}
-        logger.debug(f"[UC] 查询任务: {task_id}")
         while retry_index < max_retries:
             url = f"{self.BASE_URL}/1/clouddrive/task"
             params = {
@@ -405,7 +402,7 @@ class UCAdapter(BaseCloudDriveAdapter):
                 # 任务完成
                 if task_status == 2:
                     if retry_index > 0:
-                        logger.info("")
+                        pass
                     break
 
                 # 任务失败
@@ -417,7 +414,6 @@ class UCAdapter(BaseCloudDriveAdapter):
                 # 任务进行中
                 if retry_index == 0:
                     task_title = result.get("data", {}).get("task_title", "任务")
-                    logger.info(f"[UC] 等待任务[{task_title}]执行结果...")
 
                 retry_index += 1
                 time.sleep(0.5)
@@ -425,7 +421,6 @@ class UCAdapter(BaseCloudDriveAdapter):
             except Exception as e:
                 logger.error(f"[UC] 查询任务失败: {e}")
                 return {"status": 500, "code": 1, "message": f"查询任务失败: {e}"}
-        logger.debug(f"[UC] 任务结果: {result}")
         return result
 
     def mkdir(self, dir_path: str) -> Dict:
@@ -485,11 +480,9 @@ class UCAdapter(BaseCloudDriveAdapter):
             "filelist": filelist,
             "exclude_fids": [],
         }
-        logger.debug(f"[UC] 移动文件: {filelist} -> {to_pdir_fid}")
         try:
             response = self._send_request("POST", url, json=payload, params=params)
             result = self._safe_json(response)
-            logger.debug(f"[UC] 移动文件结果: {result}")
             return result
         except Exception as e:
             logger.error(f"[UC] 移动文件失败: {e}")
@@ -523,7 +516,6 @@ class UCAdapter(BaseCloudDriveAdapter):
             mkdir_result = self.mkdir("/来自：分享")
             if mkdir_result.get("code") == 0:
                 self._share_folder_fid = mkdir_result["data"]["fid"]
-                logger.debug("[UC] 创建中转文件夹: 来自：分享")
                 return self._share_folder_fid
             else:
                 logger.warning(f"[UC] 创建'来自：分享'文件夹失败: {mkdir_result.get('message')}")
@@ -537,7 +529,6 @@ class UCAdapter(BaseCloudDriveAdapter):
         if not fid_list:
             return {"code": 0, "message": "无文件需要移动"}
 
-        logger.debug(f"[UC] 移动 {len(fid_list)} 个文件到目标目录...")
         remaining = fid_list[:]
         while remaining:
             batch = remaining[:100]
@@ -587,6 +578,7 @@ class UCAdapter(BaseCloudDriveAdapter):
         解析UC网盘分享链接
         
         支持格式:
+            pass
         - https://drive.uc.cn/s/{share_id}
         - https://drive.uc.cn/s/{share_id}?password=xxxx
         """

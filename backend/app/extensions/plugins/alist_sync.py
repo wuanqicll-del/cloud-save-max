@@ -73,7 +73,6 @@ class Alist_sync:
                 if response.get("data").get("username") == "guest":
                     logger.warning("Alist登陆失败，请检查token")
                 else:
-                    logger.info("Alist登陆成功，当前用户: %s", response.get("data", {}).get("username"))
                     return True
             else:
                 logger.warning("Alist同步: 连接服务器失败 %s", response.get("message"))
@@ -84,7 +83,6 @@ class Alist_sync:
     def run(self, task, **kwargs):
         if not task["addition"]["alist_sync"]["enable"]:
             return 0
-        logger.info("开始进行alist同步")
         # 这一块注释的是获取任务的参数，在web界面可以看
 
         # 获取夸克挂载根目录
@@ -176,11 +174,10 @@ class Alist_sync:
 
         if self.save_file_data:
             self.save_start(self.save_file_data)
-            logger.info("同步的文件列表：")
             for save_file in self.save_file_data:
-                logger.info("└── 🎞️%s", save_file)
+                pass
         else:
-            logger.info("没有需要同步的文件")
+            pass
 
     def save_start(self, save_file_data):
         url = f"{self.url}/api/fs/copy"
@@ -195,7 +192,7 @@ class Alist_sync:
         if response.status_code != 200:
             logger.warning("未能进行Alist同步，请手动同步")
         else:
-            logger.info("Alist创建任务成功")
+            pass
         self.copy_task = response.json()
 
     def get_save_file(self, target_dir_list, source_dir_list):
@@ -257,7 +254,6 @@ class Alist_sync:
                                         source_list["name"].replace(".mp4", ".mkv")
                                         == all_file["name"]
                                     ):
-                                        logger.info("%s拥有相同版本的MKV文件，跳过复制", source_list["name"])
                                         skip = True
                 if not skip:
                     self.save_file_data.append(source_list["name"])

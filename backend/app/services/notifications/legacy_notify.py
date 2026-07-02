@@ -155,7 +155,6 @@ def bark(title: str, content: str) -> dict[str, object]:
 
 def console(title: str, content: str) -> dict[str, object]:
     if str(push_config.get("CONSOLE")).lower() != "false":
-        logger.info("%s\n\n%s", title, content)
         return _result("console", True, None)
     return _result("console", False, "disabled")
 

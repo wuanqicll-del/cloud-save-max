@@ -123,14 +123,12 @@ def check_consecutive_episodes(
         if min_size > 0:
             size = int(item.get("size") or 0)
             if size < min_size:
-                logger.info("[consecutive] skip_small: %s size=%d min=%d", file_name, size, min_size)
                 continue
 
         # 检查关键词过滤
         if filter_words_lower:
             name_lower = file_name.lower()
             if any(w in name_lower for w in filter_words_lower):
-                logger.info("[consecutive] skip_filter_word: %s", file_name)
                 continue
 
         # 检查文件筛选
@@ -138,11 +136,9 @@ def check_consecutive_episodes(
             name_lower = file_name.lower()
             if file_filter_is_any:
                 if not any(w in name_lower for w in file_filter_lower):
-                    logger.info("[consecutive] skip_file_filter: %s", file_name)
                     continue
             else:
                 if not all(w in name_lower for w in file_filter_lower):
-                    logger.info("[consecutive] skip_file_filter: %s", file_name)
                     continue
 
         # 检查文件时间过滤
@@ -155,7 +151,6 @@ def check_consecutive_episodes(
                     else:
                         file_date = str(file_ts)[:10]
                     if file_date < file_min_date:
-                        logger.info("[consecutive] skip_old_file: %s date=%s < %s", file_name, file_date, file_min_date)
                         continue
                 except Exception:
                     pass
@@ -164,10 +159,7 @@ def check_consecutive_episodes(
         season, episode = _extract_episode(file_name, tv_seasons=tv_seasons, mr=mr)
         if episode is not None and episode >= next_episode:
             valid_episodes.add(episode)
-            logger.info("[consecutive] accepted: %s ep=%s", file_name, episode)
-        else:
-            logger.info("[consecutive] skip_no_ep_or_low: %s ep=%s next=%s", file_name, episode, next_episode)
-    
+
     if not valid_episodes:
         return False, [], 0
     
@@ -176,15 +168,12 @@ def check_consecutive_episodes(
     consecutive: list[int] = []
     for ep in range(next_episode, max_episode + 1):
         if ep not in valid_episodes:
-            logger.info("[consecutive] gap at E%d, stopping", ep)
             break
         consecutive.append(ep)
     
     if not consecutive:
         # 没有从next_episode开始的连贯集数，但可能有缺口后面的集数
         has_later = max_episode >= next_episode
-        logger.info("[consecutive] no consecutive from E%d, max_ep=%d, has_later=%s", next_episode, max_episode, has_later)
         return False, [], max_episode if has_later else 0
     
-    logger.info("[consecutive] OK: consecutive episodes from E%d: %s, max_ep=%d", next_episode, consecutive, max_episode)
     return True, consecutive, max_episode

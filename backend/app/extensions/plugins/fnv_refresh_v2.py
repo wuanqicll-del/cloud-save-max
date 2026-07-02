@@ -54,10 +54,7 @@ class Fnv_refresh_v2:
             return
 
         if self.username and self.password:
-            logger.info(
-                f"{self.plugin_name}: 当前使用 Python 兼容版，已恢复配置项与扫描入口；"
-                "自动换取 token 的闭源逻辑暂不可用，请先按文档抓取 secret 和 fnv_token。"
-            )
+            pass
 
     def run(self, task, **kwargs):
         if not self.is_active:
@@ -77,7 +74,6 @@ class Fnv_refresh_v2:
             return task
 
         if self._scan_library(library_id, target_path):
-            logger.info("%s: 已触发飞牛影视刷新 %s", self.plugin_name, target_path)
             if self.remove_useless_wait >= 0:
                 self._remove_useless()
         return task
@@ -116,7 +112,6 @@ class Fnv_refresh_v2:
         for body in ({"wait_time": wait_time}, {"wait": wait_time}, {"seconds": wait_time}):
             payload = self._request("POST", "/v/api/v1/task/removeUseless", data=body, quiet=True)
             if payload and payload.get("code") == 0:
-                logger.info("%s: 已清理缺失媒体等待任务", self.plugin_name)
                 return
 
     def _request(

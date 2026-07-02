@@ -108,7 +108,6 @@ def _trace(tag: str | None, message: str) -> None:
     prefix = "[guessit_fallback]"
     if tag:
         prefix = f"{prefix}[{tag}]"
-    logger.debug("%s %s", prefix, message)
 
 
 def sanitize_for_guessit(name: str) -> str:

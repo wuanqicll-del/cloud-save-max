@@ -283,6 +283,14 @@ def _task_out(
                     tmdb_details=tmdb_payload_map.get(key),
                     snapshot=snapshot,
                 )
+    elif str(getattr(item, "task_type", "") or "") == "drama" and isinstance(snapshot_map, dict):
+        # 没有TMDB的追剧任务，也构建进度信息
+        snapshot = snapshot_map.get(str(getattr(item, "task_uid", "") or "").strip())
+        if snapshot:
+            drama_update_progress = build_drama_update_progress(
+                tmdb_details=None,
+                snapshot=snapshot,
+            )
 
     return TaskOut(
         id=item.id,
@@ -798,14 +806,8 @@ def post_run_task_stream(request: Request, task_id: int, current: CurrentUser = 
                     except Exception:
                         pass
                     tree_sum = str(getattr(execution, "tree_summary", "") or "")
-                    logger.info(
-                        "追剧任务流式执行完成，准备同步判定: execution.status=%s tree_summary=%s",
-                        str(getattr(execution, "status", "") or ""),
-                        tree_sum[:100],
-                    )
                     if should_trigger_linked_sync_for_drama_execution(execution):
                         uid = str(getattr(wtask, "task_uid", "") or "").strip()
-                        logger.info("追剧同步判定为 True，准备触发同步任务 uid=%s", uid)
                         trigger_linked_sync_tasks_async([uid], source="api.tasks.run.stream")
                     else:
                         logger.warning(

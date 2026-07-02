@@ -167,9 +167,7 @@ def _log_debug(label: str, payload: Any) -> None:
         text = repr(_redact(payload))
     msg = f"{label}={_truncate_text(text)}"
     if _debug_enabled():
-        logger.info(msg)
-    else:
-        logger.debug(msg)
+        pass
 
 
 def _loads(value: str) -> dict[str, Any]:

@@ -165,24 +165,24 @@ def resolve_saved_latest_progress(
         return None, None, None
     if str(getattr(task, "task_type", "") or "") != "drama":
         return None, None, None
-    if str(getattr(task, "tmdb_media_type", "") or "").strip().lower() != "tv":
-        return None, None, None
+
+    # 获取TMDB信息（如果有）
+    tmdb_id = 0
     try:
         tmdb_id = int(getattr(task, "tmdb_id", 0) or 0)
     except Exception:
-        tmdb_id = 0
-    if tmdb_id <= 0:
-        return None, None, None
+        pass
 
-    configured, detail, _update_weekdays, _episode_weekdays, _row = get_tmdb_detail_cached(
-        db,
-        media_type="tv",
-        tmdb_id=tmdb_id,
-    )
-    if not configured or not isinstance(detail, dict):
-        return None, None, None
+    tv_seasons = None
+    if tmdb_id > 0 and str(getattr(task, "tmdb_media_type", "") or "").strip().lower() == "tv":
+        configured, detail, _update_weekdays, _episode_weekdays, _row = get_tmdb_detail_cached(
+            db,
+            media_type="tv",
+            tmdb_id=tmdb_id,
+        )
+        if configured and isinstance(detail, dict):
+            tv_seasons = _pick_tv_seasons(detail)
 
-    tv_seasons = _pick_tv_seasons(detail)
     # 加载重命名规则
     from app.extensions.runtime.magic_rename import MagicRename
     from app.services.drama_share_consecutive import _extract_episode
@@ -200,9 +200,6 @@ def resolve_saved_latest_progress(
             mr = None
     best_key: tuple[int, int] | None = None
     best_name: str | None = None
-    import logging as _snap_log
-    _snap_dbg = _snap_log.getLogger(__name__)
-    _snap_dbg.info("[resolve_progress] files=%d mr=%s pattern=%r replace=%r", len(files), mr is not None, task_pattern, task_replace)
     for item in files:
         if not isinstance(item, dict):
             continue
@@ -211,7 +208,6 @@ def resolve_saved_latest_progress(
             continue
         # 用重命名规则提取集数
         season, episode = _extract_episode(name, tv_seasons=tv_seasons, mr=mr)
-        _snap_dbg.info("[resolve_progress] file=%s season=%s episode=%s", name, season, episode)
         if season is None or episode is None:
             continue
         try:

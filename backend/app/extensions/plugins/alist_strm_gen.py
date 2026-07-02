@@ -244,9 +244,7 @@ class Alist_strm_gen:
                     except Exception:
                         root_dir = ""
                 if not root_dir:
-                    logger.info(
-                        "Alist-Strm生成: 未配置root_dir，将在运行时尝试根据任务savepath自动探测映射路径"
-                    )
+                    pass
         else:
             if not storage_id:
                 logger.warning("Alist-Strm生成: storage_id 为空")
@@ -254,9 +252,7 @@ class Alist_strm_gen:
                 storage_mount_path = self._norm_path(storage_id)
                 root_dir = configured_root_dir or ""
                 if not root_dir:
-                    logger.info(
-                        "Alist-Strm生成: 未配置root_dir，将在运行时尝试根据任务savepath自动探测映射路径"
-                    )
+                    pass
                 if not self.client:
                     return False, (None, None)
                 try:
@@ -266,7 +262,6 @@ class Alist_strm_gen:
                     return False, (None, None)
         # 返回结果
         if storage_mount_path and root_dir:
-            logger.info("Alist-Strm生成: [%s:%s]", storage_mount_path, root_dir)
             return True, (storage_mount_path, root_dir)
         else:
             return False, (None, None)
@@ -324,7 +319,6 @@ class Alist_strm_gen:
                 url = f"{self.strm_server}{file_path}{sign_param}"
             with open(strm_path, "w", encoding="utf-8") as strm_file:
                 strm_file.write(url)
-            logger.info("📺 生成STRM文件 %s 成功", strm_path)
 
     def get_root_folder_full_path(self, cookie, pdir_fid):
         if pdir_fid == "0":

@@ -178,7 +178,6 @@ class Pan123Adapter(BaseCloudDriveAdapter):
         self._session.headers.update(self._build_headers())
         if self._debug:
             logger.setLevel(logging.DEBUG)
-        logger.info(f"[123pan] adapter init: account={self._account_name}, protocol={self._protocol}")
         self._share_path_cache: Dict[str, List[Dict[str, str]]] = {}
 
     def _parse_cookie_kv(self, cookie: str) -> Dict[str, str]:
@@ -321,13 +320,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
             data = resp.json()
             cost_ms = int((time.time() - start) * 1000)
             if self._debug:
-                logger.debug(
-                    f"[123pan] api {method} {url} cost={cost_ms}ms "
-                    f"auth={'Y' if bool(self._authorization) else 'N'} "
-                    f"params={self._safe_kv(params) if params else None} "
-                    f"json={self._safe_kv(json_data) if isinstance(json_data, dict) else ('<json>' if json_data else None)} "
-                    f"resp={self._summarize_response(data)}"
-                )
+                pass
             if isinstance(data, dict) and "code" in data and data.get("code") not in (0, 200):
                 logger.warning(f"[123pan] api nonzero: {method} {path} -> {self._summarize_response(data)}")
             return data
@@ -348,10 +341,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
             data = resp.json()
             cost_ms = int((time.time() - start) * 1000)
             if self._debug:
-                logger.debug(
-                    f"[123pan] share {method} {url} cost={cost_ms}ms params={self._safe_kv(params) if params else None} "
-                    f"resp={self._summarize_response(data)}"
-                )
+                pass
             if isinstance(data, dict) and data.get("info", {}).get("code") not in (0, 200):
                 logger.warning(f"[123pan] share nonzero: {method} {path} -> {self._summarize_response(data)}")
             return data
@@ -364,13 +354,13 @@ class Pan123Adapter(BaseCloudDriveAdapter):
         global _global_config_saver
         if not _global_config_saver:
             if self._debug:
-                logger.debug(f"[123pan] config_saver not set, skip persist account={self._account_name}")
+                pass
             return
         cookie_str = self._format_cookie_string()
         try:
             updated = _global_config_saver(cookie_str, self._account_name)
             if self._debug:
-                logger.debug(f"[123pan] persist cookie to db: updated={updated} account={self._account_name}")
+                pass
         except Exception as e:
             logger.warning(f"[123pan] persist cookie to db failed: account={self._account_name} err={e}")
 
@@ -409,7 +399,6 @@ class Pan123Adapter(BaseCloudDriveAdapter):
             token = res["data"]["token"]
             self._set_authorization(f"Bearer {token}")
             self._save_cookie_string()
-            logger.info(f"[123pan] login ok: account={self._account_name}")
         else:
             logger.warning(f"[123pan] login failed: account={self._account_name} resp={self._summarize_response(res)}")
         return res
@@ -501,10 +490,9 @@ class Pan123Adapter(BaseCloudDriveAdapter):
         info = None
         if self._authorization:
             if self._debug:
-                logger.debug(f"[123pan] init: try existing authorization account={self._account_name}")
+                pass
             info = self.get_account_info()
         if not info:
-            logger.info(f"[123pan] init: relogin account={self._account_name}")
             login_res = self._login()
             if login_res.get("code") not in (0, 200):
                 return False
@@ -512,7 +500,6 @@ class Pan123Adapter(BaseCloudDriveAdapter):
         if info:
             self.is_active = True
             self.nickname = info.get("Nickname") or info.get("NickName") or self._account_name
-            logger.info(f"[123pan] init ok: account={self._account_name} nickname={self.nickname}")
             return info
         logger.warning(f"[123pan] init failed: account={self._account_name}")
         return False
@@ -521,7 +508,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
         if self.is_active and self._authorization:
             return True
         if not self._authorization and (self._user_name and self._password):
-            logger.info(f"[123pan] ensure_login: no authorization, try init account={self._account_name}")
+            pass
         ok = bool(self.init())
         if not ok:
             logger.warning(f"[123pan] ensure_login failed: account={self._account_name}")
@@ -553,7 +540,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
                 pdir_fid = 0
         self._last_share_key = share_key or ""
         if self._debug:
-            logger.debug(f"[123pan] extract_url: base={self._share_base} share_key={share_key} pwd_present={'Y' if bool(passcode) else 'N'}")
+            pass
         return share_key, passcode, pdir_fid, paths
 
     def get_stoken(self, pwd_id: str, passcode: str = "") -> Dict:
@@ -599,7 +586,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
                 break
             page += 1
         if self._debug:
-            logger.debug(f"[123pan] share_list done: share_key={share_key} parent={parent_file_id} count={len(list_merge)}")
+            pass
         return list_merge
 
     def _get_share_full_path(self, share_key: str, share_pwd: str, target_dir_fid: int) -> List[Dict[str, str]]:
@@ -667,10 +654,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
                     q.append(fid)
 
         if self._debug:
-            logger.debug(
-                f"[123pan] share_full_path not found: share_key={share_key} target={target_dir_fid_int} "
-                f"calls={list_calls}"
-            )
+            pass
         self._share_path_cache[cache_key] = []
         return []
 
@@ -753,7 +737,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
         resp = self._request("GET", "/b/api/file/list/new", params=params, timeout=30)
         if resp.get("code") != 0:
             if self._debug:
-                logger.debug(f"[123pan] ls_dir fallback to /api/file/list/new, last={self._summarize_response(resp)}")
+                pass
             resp = self._request("GET", "/api/file/list/new", params=params, timeout=30)
         if resp.get("code") != 0:
             return {"code": resp.get("code", 500), "message": resp.get("message", ""), "data": {"list": []}}
@@ -762,7 +746,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
         if max_items > 0:
             converted = converted[:max_items]
         if self._debug:
-            logger.debug(f"[123pan] ls_dir ok: pdir_fid={pdir_fid} count={len(converted)}")
+            pass
         return {"code": 0, "message": "ok", "data": {"list": converted}, "metadata": {"_total": len(converted)}}
 
     def _convert_dir_item(self, item: Dict) -> Dict:
@@ -856,7 +840,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
         resp = self._request("POST", "/a/api/file/trash", json_data=payload, timeout=30)
         if resp.get("code") != 0:
             if self._debug:
-                logger.debug(f"[123pan] delete fallback to /b/api/file/trash, last={self._summarize_response(resp)}")
+                pass
             resp = self._request("POST", "/b/api/file/trash", json_data=payload, timeout=30)
         if resp.get("code") == 0:
             return {"code": 0, "message": "ok", "data": resp.get("data")}
@@ -939,9 +923,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
 
         created_top_fids: List[str] = []
         if self._debug:
-            logger.debug(
-                f"[123pan] save_file start: share_key={pwd_id} items={len(fid_list)} to_pdir_fid={to_pdir_fid}"
-            )
+            pass
         for fid, token_str in zip(fid_list, fid_token_list):
             try:
                 token = json.loads(token_str) if token_str else {}
@@ -974,7 +956,7 @@ class Pan123Adapter(BaseCloudDriveAdapter):
             time.sleep(random.uniform(0.05, 0.15))
 
         if self._debug:
-            logger.debug(f"[123pan] save_file done: created={len(created_top_fids)}")
+            pass
         return {"code": 0, "message": "ok", "data": {"_sync": True, "save_as_top_fids": created_top_fids}}
 
     def query_task(self, task_id: str) -> Dict:

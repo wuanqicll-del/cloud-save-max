@@ -13,6 +13,7 @@ TASK_READ = "task:read"
 TASK_WRITE = "task:write"
 TASK_RUN = "task:run"
 AUDIT_READ = "audit:read"
+AUDIT_WRITE = "audit:write"
 
 SYNC_READ = "sync:read"
 SYNC_WRITE = "sync:write"

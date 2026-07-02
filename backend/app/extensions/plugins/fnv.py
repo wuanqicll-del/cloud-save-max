@@ -65,7 +65,7 @@ class Fnv:
                     self._login()
                 self.is_active = self.token is not None or self.token != ""
                 if self.is_active:
-                    logger.info("%s: 插件已激活", self.plugin_name)
+                    pass
                 else:
                     logger.warning("%s: 插件未激活", self.plugin_name)
 
@@ -75,19 +75,16 @@ class Fnv:
         根据任务配置，执行媒体库刷新操作。
         """
         if not self.is_active:
-            logger.info("飞牛影视: 插件未激活，跳过任务。")
             return
 
         task_config = task.get("addition", {}).get(
             self.plugin_name, self.default_task_config
         )
         if not task_config.get("auto_refresh"):
-            logger.info("飞牛影视: 自动刷新未启用，跳过处理。")
             return
 
         target_library_name = task_config.get("mdb_name")
         if not target_library_name:
-            logger.info("飞牛影视: 未指定媒体库名称，跳过处理。")
             return
         target_library_mdb_dir_list = task_config.get("mdb_dir_list")
         dir_list = []
@@ -183,14 +180,12 @@ class Fnv:
         app_name = self.app_name or self.default_config["app_name"]
         username = self.username or self.default_config["username"]
         password = self.password or self.default_config["password"]
-        logger.info("飞牛影视: 正在尝试登录...")
 
         payload = {"username": username, "password": password, "app_name": app_name}
         response_json = self._make_request('post', self.API_LOGIN, data=payload)
 
         if response_json and response_json.get("data", {}).get("token"):
             self.token = response_json["data"]["token"]
-            logger.info("飞牛影视: 登录成功")
             return True
         else:
             logger.warning("飞牛影视: 登录失败")
@@ -204,13 +199,11 @@ class Fnv:
             logger.warning("飞牛影视: 必须先登录才能获取媒体库列表。")
             return None
 
-        logger.info("飞牛影视: 正在查找媒体库 '%s'...", library_name)
         response_json = self._make_request('get', self.API_MDB_LIST)
 
         if response_json and response_json.get("data"):
             for library in response_json.get("data", []):
                 if library.get("name") == library_name:
-                    logger.info("飞牛影视: 找到目标媒体库，ID: %s", library.get("guid"))
                     return library.get("guid")
             logger.warning("飞牛影视: 未在媒体库列表中找到名为 '%s' 的媒体库", library_name)
         return None
@@ -224,9 +217,9 @@ class Fnv:
             return False
 
         if dir_list:
-            logger.info("飞牛影视: 正在为媒体库 %s 发送部分目录%s刷新指令...", library_id, dir_list)
+            pass
         else:
-            logger.info("飞牛影视: 正在为媒体库 %s 发送刷新指令...", library_id)
+            pass
         rel_url = self.API_MDB_SCAN.format(library_id)
         request_body = {"dir_list": dir_list} if dir_list else {}
         response_json = self._make_request('post', rel_url, data=request_body)
@@ -235,14 +228,11 @@ class Fnv:
 
         response_code = response_json.get("code")
         if response_code == 0:
-            logger.info("飞牛影视: 发送刷新指令成功")
             return True
         elif response_code == -14:
             if self._stop_refresh_task(library_id):
-                logger.info("飞牛影视: 发现重复任务，已停止旧任务，重新发送刷新指令...")
                 response_json = self._make_request('post', rel_url, data={})
                 if response_json and response_json.get("code") == 0:
-                    logger.info("飞牛影视: 发送刷新指令成功")
                     return True
                 else:
                     logger.warning("飞牛影视: 重新发送刷新指令失败")
@@ -258,12 +248,10 @@ class Fnv:
             logger.warning("飞牛影视: 必须先登录才能停止刷新任务。")
             return False
 
-        logger.info("飞牛影视: 正在停止媒体库刷新任务 %s...", library_id)
         payload = {"guid": library_id, "type": "TaskItemScrap"}
         response_json = self._make_request('post', self.API_TASK_STOP, data=payload)
 
         if response_json and response_json.get("code") == 0:
-            logger.info("飞牛影视: 停止刷新任务成功")
             return True
         else:
             logger.warning("飞牛影视: 停止刷新任务失败")

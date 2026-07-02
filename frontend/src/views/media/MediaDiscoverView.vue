@@ -60,6 +60,10 @@ const viewMode = ref<'douban' | 'tmdb'>('douban')
 
 const accounts = ref<DriveAccountItem[]>([])
 const plugins = ref<PluginItem[]>([])
+
+const activePlugins = computed(() => {
+  return plugins.value.filter((item) => Boolean(item.installed) && Boolean(item.enabled))
+})
 const tasksCache = ref<TaskItem[]>([])
 const tasksLoading = ref(false)
 const syncTasks = ref<SyncTaskItem[]>([])
@@ -817,7 +821,7 @@ onMounted(async () => {
       v-model="taskDrawer.visible"
       :task="taskDrawer.currentTask"
       :accounts="accounts"
-      :plugins="plugins"
+      :plugins="activePlugins"
       :sync-tasks="syncTasks"
       :submitting="taskDrawer.submitting"
       :preset-taskname="taskDrawer.presetTaskname"

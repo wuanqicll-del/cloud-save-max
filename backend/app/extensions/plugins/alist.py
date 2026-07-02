@@ -58,7 +58,6 @@ class Alist:
                 data = response.get("data", []) or []
                 v1 = data[1].get("value", "") if len(data) > 1 and isinstance(data[1], dict) else ""
                 v0 = data[0].get("value", "") if len(data) > 0 and isinstance(data[0], dict) else ""
-                logger.info("Alist刷新: %s %s", v1, v0)
                 return True
             else:
                 logger.warning("Alist刷新: 连接失败 %s", response.get("message"))
@@ -118,7 +117,6 @@ class Alist:
     def refresh(self, path):
         data = self.get_file_list(path, True)
         if data.get("code") == 200:
-            logger.info("📁 Alist刷新：目录[%s] 成功", path)
             return data.get("data")
         elif "object not found" in data.get("message", ""):
             # 如果是根目录就不再往上查找

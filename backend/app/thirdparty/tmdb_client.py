@@ -67,7 +67,6 @@ class TMDBClient:
                 pass
             return data
         except Exception as e:
-            logger.debug(f"TMDB主地址请求失败: {e}")
             if self.current_url == self.primary_url:
                 self.current_url = self.backup_url
                 try:

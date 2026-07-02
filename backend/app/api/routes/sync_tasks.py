@@ -301,13 +301,7 @@ def post_run_sync_task(
 ):
     override = payload.strategy.model_dump(mode="json") if payload and payload.strategy else None
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "sync run request sync_task_id=%s user_id=%s ip=%s override=%s",
-            int(sync_task_id),
-            int(getattr(current.user, "id", 0) or 0),
-            request.client.host if request.client else None,
-            json.dumps(override, ensure_ascii=False) if override else None,
-        )
+        pass
     running = (
         db.execute(
             select(SyncExecution)
@@ -319,18 +313,12 @@ def post_run_sync_task(
     )
     if running is not None:
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("sync run rejected sync_task_id=%s running_execution_id=%s", int(sync_task_id), int(running.id))
+            pass
         raise ApiError(code="SYNC_TASK_RUNNING", message="同步任务正在执行", http_status=409, detail=str(running.id))
     task = get_sync_task(db, sync_task_id)
     execution = SyncExecutor(db).run_sync_task(task, strategy_override=override)
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "sync run finished sync_task_id=%s sync_execution_id=%s status=%s stage=%s",
-            int(sync_task_id),
-            int(getattr(execution, "id", 0) or 0),
-            str(getattr(execution, "status", "") or ""),
-            str(getattr(execution, "stage", "") or ""),
-        )
+        pass
     audit.write_audit_log(
         db,
         actor_user_id=current.user.id,
@@ -402,35 +390,19 @@ def post_run_sync_task_stream(
             log = ExecutionLog(emit_line=emit_line, emit_stage=emit_stage, emit_progress=emit_progress)
             try:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "sync run(stream) start sync_task_id=%s user_id=%s ip=%s override=%s",
-                        int(sync_task_id),
-                        int(getattr(current.user, "id", 0) or 0),
-                        request.client.host if request.client else None,
-                        json.dumps(override, ensure_ascii=False) if override else None,
-                    )
+                    pass
                 wtask = get_sync_task(wdb, sync_task_id)
                 execution = SyncExecutor(wdb).run_sync_task(wtask, log=log, strategy_override=override)
                 wdb.commit()
                 wdb.refresh(execution)
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "sync run(stream) finished sync_task_id=%s sync_execution_id=%s status=%s stage=%s",
-                        int(sync_task_id),
-                        int(getattr(execution, "id", 0) or 0),
-                        str(getattr(execution, "status", "") or ""),
-                        str(getattr(execution, "stage", "") or ""),
-                    )
+                    pass
                 q.put(("done", {"status": execution.status, "message": execution.message, "execution": _execution_out(execution).model_dump(mode="json")}))
             except Exception as exc:
                 wdb.rollback()
                 message = getattr(exc, "message", None) or str(exc).strip() or type(exc).__name__
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "sync run(stream) failed sync_task_id=%s err=%s",
-                        int(sync_task_id),
-                        message,
-                    )
+                    pass
                 q.put(
                     (
                         "done",

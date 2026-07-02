@@ -87,13 +87,11 @@ def _config_saver_factory(config_path: str):
                     # 记录 token 更新时间戳，用于防止回滚
                     acc["_token_updated_at"] = current_time
                     updated = True
-                    logger.info(f"[Aliyun] 已更新账户 {acc.get('name', 'unknown')} 的 refresh_token (时间戳: {current_time})")
                     if account_name:
                         break
             
             if updated:
                 Config.write_json(config_path, config)
-                logger.info("[Aliyun] refresh_token 已保存到配置文件")
                 return True
             else:
                 logger.warning("[Aliyun] 未找到需要更新的阿里云盘账户")
@@ -271,7 +269,6 @@ class AliyunAdapter(BaseCloudDriveAdapter):
                 if old_refresh_token != self._refresh_token:
                     self._save_refresh_token()
                 
-                logger.info(f"[Aliyun] Token 刷新成功，用户: {self._token.nick_name}")
                 return True
                 
             except Exception as e:
@@ -599,7 +596,6 @@ class AliyunAdapter(BaseCloudDriveAdapter):
             # 方法2: 如果上述方法失败，使用 BFS 遍历
             return self._bfs_share_path(share_id, share_token, file_id)
         except Exception as e:
-            logger.debug(f"[Aliyun] 获取分享路径失败: {e}")
             return []
 
     def _get_share_file_info(self, share_id: str, share_token: str, file_id: str) -> Optional[Dict]:
@@ -615,7 +611,6 @@ class AliyunAdapter(BaseCloudDriveAdapter):
                 return data
             return None
         except Exception as e:
-            logger.debug(f"[Aliyun] 获取分享文件信息失败: {e}")
             return None
 
     def _bfs_share_path(self, share_id: str, share_token: str, target_file_id: str) -> List[Dict]:
@@ -662,7 +657,6 @@ class AliyunAdapter(BaseCloudDriveAdapter):
                         new_path = current_path + [{"fid": item_id, "file_name": item_name}]
                         queue.append((item_id, new_path))
             except Exception as e:
-                logger.debug(f"[Aliyun] BFS 遍历分享目录失败: {e}")
                 continue
         
         return []
@@ -796,7 +790,6 @@ class AliyunAdapter(BaseCloudDriveAdapter):
             if not to_drive_id:
                 return {"code": 1, "message": "未获取到 drive_id，请检查账户配置", "data": {}}
             
-            logger.debug(f"[Aliyun] save_file: to_drive_id={to_drive_id}, to_parent_id={to_parent_id}")
             
             # 批量转存
             requests_list = []
@@ -1041,7 +1034,6 @@ class AliyunAdapter(BaseCloudDriveAdapter):
                     })
             return path.reverse()
         except Exception as e:
-            logger.debug(f"[Aliyun] 获取文件路径失败: {e}")
             return []
 
     def get_fids(self, file_paths: List[str]) -> List[Dict]:

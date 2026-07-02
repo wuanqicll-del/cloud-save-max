@@ -17,11 +17,9 @@ def builtin_magic_regex() -> dict[str, dict[str, str]]:
 
 def builtin_magic_regex_labels() -> dict[str, str]:
     return {
-        "$TV_REGEX": "剧集集数（SxxExx）",
         "$TV_MAGIC": "通用视频命名",
         "$SHOW_MAGIC": "综艺期数命名",
-        "$SHOW_PRO": "综艺期数命名（含日期）",
-        "$BLACK_WORD": "黑名单过滤（仅筛选不改名）",
+        "$SHOW_PRO": "综艺带上下集命名",
     }
 
 
@@ -59,7 +57,7 @@ def list_rules(db: Session) -> list[dict[str, Any]]:
     db_rules = db.execute(select(MagicRegexRule).order_by(MagicRegexRule.key.asc())).scalars().all()
     db_by_key = {r.key: r for r in db_rules}
 
-    preferred_order = ["$TV_REGEX", "$TV_MAGIC", "$SHOW_MAGIC", "$SHOW_PRO", "$BLACK_WORD"]
+    preferred_order = ["$TV_MAGIC", "$SHOW_MAGIC", "$SHOW_PRO"]
     ordered_keys: list[str] = []
     seen: set[str] = set()
     for key in preferred_order:

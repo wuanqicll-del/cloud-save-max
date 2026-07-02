@@ -37,10 +37,6 @@ class Auto_unarchive:
 
         if not str(self.global_enable).lower() == "true":
             if not task_config.get("enable"):
-                logger.info(
-                    "🟨 [%s] 未启用 auto_unarchive（任务插件选项 enable=false，且 global_enable 未开启）",
-                    task.get("taskname", ""),
-                )
                 return task
 
         # 任务配置中是否自动删除原始文件
@@ -49,7 +45,6 @@ class Auto_unarchive:
 
         try:
             savepath = re.sub(r"/{2,}", "/", f"/{task['savepath']}").rstrip("/")
-            logger.info("📦 [%s] 查找保存目录 fid: savepath=%r, savepath_fid keys=%r", task.get("taskname", ""), savepath, list(getattr(account, "savepath_fid", {}).keys()) if hasattr(account, "savepath_fid") else "NOT_SET")
             target_pdir_fid = account.savepath_fid.get(savepath) if hasattr(account, "savepath_fid") else None
 
             if not target_pdir_fid:
@@ -70,7 +65,6 @@ class Auto_unarchive:
                 and re.search(r"\.(zip|rar|7z)$", node.tag, re.I)
             ]
             if not all_zip_nodes:
-                logger.info("🟨 [%s] 未发现压缩包（zip|rar|7z），跳过云解压", task.get("taskname", ""))
                 return task
 
             # 加载重命名规则
@@ -85,7 +79,6 @@ class Auto_unarchive:
                     task_pattern, task_replace = mr.magic_regex_conv(task_pattern, task_replace)
                     mr._resolved_pattern = task_pattern
                     mr._resolved_replace = task_replace
-                    logger.info("📦 [%s] 重命名规则: pattern=%r replace=%r", task["taskname"], task_pattern, task_replace)
                 except Exception:
                     mr = None
 
@@ -95,7 +88,6 @@ class Auto_unarchive:
             all_rename_ops = []  # (fid, new_name)
             all_cleanup_fids = []
 
-            logger.info("📦 [%s] 共有 %s 个任务，控制并发数为: %s", task["taskname"], len(wait_list), self.max_concurrent)
 
             while wait_list or active_tasks:
 
@@ -117,7 +109,6 @@ class Auto_unarchive:
                                 "zip_name": zip_name,
                             }
                         )
-                        logger.info("  ▶️ 提交解压: %s", zip_name)
                     else:
                         logger.warning("  ❌ 提交失败: %s (%s)", zip_name, res.get("message"))
                         if "concurrent" in res.get("message", ""):
@@ -131,7 +122,6 @@ class Auto_unarchive:
                     q_status = q_res.get("status")
                     q_data = q_res.get("data") or {}
                     if q_status == 200 and q_data.get("status") == 2:
-                        logger.info("  ✅ 解压完成: %s", p_task["zip_name"])
                         self._process_files(
                             account,
                             p_task,
@@ -156,20 +146,17 @@ class Auto_unarchive:
 
             # 批量移动文件到保存目录
             if all_move_fids:
-                logger.info("🚀 解压完成，开始批量移动 %s 个文件到保存目录...", len(all_move_fids))
                 if account.move_files(all_move_fids, target_pdir_fid).get("code") == 0:
-                    logger.info("  ✅ 移动完成")
                     # 移动后执行重命名
                     for fid, new_name in all_rename_ops:
                         try:
                             account.rename(fid, new_name)
-                            logger.info("  📝 重命名: %s", new_name)
                         except Exception as e:
                             logger.warning("  ❌ 重命名失败: %s (%s)", new_name, e)
                     # 清理
                     if all_cleanup_fids:
                         if account.delete(all_cleanup_fids):
-                            logger.info("🧹 批量清理完成")
+                            pass
                 else:
                     logger.warning("  ❌ 移动文件失败")
 
@@ -215,7 +202,6 @@ class Auto_unarchive:
                         new_name = mr.sub(mr._resolved_pattern, mr._resolved_replace, file_name)
                         if new_name and new_name != file_name:
                             rename_ops.append((item["fid"], new_name))
-                            logger.info("  📝 待重命名: %s -> %s", file_name, new_name)
                     except Exception:
                         pass
         except Exception as e:

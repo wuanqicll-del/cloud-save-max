@@ -78,17 +78,21 @@ def build_drama_update_progress(
     snapshot: TaskSavepathSnapshot | None,
 ) -> DramaUpdateProgressOut:
     tmdb_season, tmdb_episode, tmdb_reason = resolve_tmdb_latest_aired_episode(tmdb_details)
-    if tmdb_season is None or tmdb_episode is None:
-        return DramaUpdateProgressOut(
-            available=False,
-            tmdb_season=tmdb_season,
-            tmdb_episode=tmdb_episode,
-            snapshot_captured_at=snapshot.captured_at if snapshot is not None else None,
-            reason=tmdb_reason or "TMDB 解析失败",
-        )
 
     if snapshot is None:
         return DramaUpdateProgressOut(available=False, tmdb_season=tmdb_season, tmdb_episode=tmdb_episode, reason="无快照")
+
+    # 没有TMDB时，只返回已保存的进度
+    if tmdb_season is None or tmdb_episode is None:
+        saved_season = getattr(snapshot, "saved_latest_season", None)
+        saved_episode = getattr(snapshot, "saved_latest_episode", None)
+        return DramaUpdateProgressOut(
+            available=bool(saved_season is not None and saved_episode is not None),
+            saved_season=saved_season,
+            saved_episode=saved_episode,
+            snapshot_captured_at=snapshot.captured_at if snapshot is not None else None,
+            reason=tmdb_reason or "无TMDB信息",
+        )
 
     saved_season, saved_episode, saved_reason = resolve_saved_latest_episode_from_snapshot(
         snapshot=snapshot,
