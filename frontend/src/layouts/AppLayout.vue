@@ -38,13 +38,6 @@ const isDark = computed({
 
 const buildTag = ref<string | null>(null)
 const buildSha = ref<string | null>(null)
-const latestTag = ref<string | null>(null)
-const updateUrl = computed(() => 'https://github.com/ozoo0/cloud-auto-save-x/releases')
-const showUpdateBadge = computed(() => {
-  const current = (buildTag.value || '').trim() || 'dev'
-  const latest = (latestTag.value || '').trim()
-  return Boolean(latest && latest !== current)
-})
 const versionText = computed(() => {
   const tag = (buildTag.value || '').trim() || 'dev'
   const sha = (buildSha.value || '').trim()
@@ -99,27 +92,6 @@ async function handleLogout() {
   router.replace('/login')
 }
 
-async function checkNewVersion() {
-  try {
-    const res = await fetch('https://api.github.com/repos/ozoo0/cloud-auto-save-x/tags', {
-      method: 'GET',
-      headers: { Accept: 'application/vnd.github+json' },
-    })
-    if (!res.ok) return
-    const data = (await res.json()) as Array<{ name?: string }>
-    const tag = String(data?.[0]?.name || '').trim()
-    latestTag.value = tag || null
-  } catch {
-    latestTag.value = null
-  }
-}
-
-function openUpdatePage() {
-  if (!showUpdateBadge.value) return
-  if (typeof window === 'undefined') return
-  window.open(updateUrl.value, '_blank')
-}
-
 onMounted(async () => {
   try {
     const health = await getHealth()
@@ -129,7 +101,6 @@ onMounted(async () => {
     buildTag.value = 'dev'
     buildSha.value = null
   }
-  await checkNewVersion()
 })
 
 watch(
@@ -195,22 +166,9 @@ watch(
           </div>
           <div class="app-aside-actions__row">
             <span class="app-aside-actions__label">版本</span>
-            <el-badge
-              :value="latestTag || ''"
-              :hidden="!showUpdateBadge"
-              type="danger"
-              :offset="[-6, -2]"
-              class="app-version-badge"
-            >
-              <span
-                class="app-version"
-                :class="{ 'app-version--clickable': showUpdateBadge }"
-                :title="showUpdateBadge ? `发现新版本：${latestTag}` : `${buildTag || ''} ${buildSha || ''}`.trim()"
-                @click="openUpdatePage"
-              >
-                {{ versionText }}
-              </span>
-            </el-badge>
+            <span class="app-version" :title="`${buildTag || ''} ${buildSha || ''}`.trim()">
+              {{ versionText }}
+            </span>
           </div>
           <div class="app-aside-actions__row">
             <span class="app-aside-actions__label">账号</span>
