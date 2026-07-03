@@ -207,7 +207,7 @@ def resolve_saved_latest_progress(
         if not name or not _is_video_name(name):
             continue
         # 用重命名规则提取集数
-        season, episode = _extract_episode(name, tv_seasons=tv_seasons, mr=mr)
+        season, episode = _extract_episode(name, mr=mr)
         if season is None or episode is None:
             continue
         try:

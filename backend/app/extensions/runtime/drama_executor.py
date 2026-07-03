@@ -961,31 +961,35 @@ class DramaTaskExecutor:
                 mr_ep = None
             with SessionLocal() as _ep_db:
                 groups = fetch_share_file_list_grouped(_ep_db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode)
-            allowed_eps: set[int] = set()
-            for file_list, fid, dir_ts in groups:
-                if not file_list:
-                    continue
-                is_con, con_eps, max_ep = check_consecutive_episodes(file_list, current_episode=current_ep, min_size=_min_size, filter_words=_filter_words, file_filter_words=_file_filter_words, file_filter_is_any=_file_filter_is_any, file_min_date=_file_min_date, tv_seasons=tmdb_tv_ss, mr=mr_ep)
-                _dbg.info("[episode_filter] group fid=%s files=%d consecutive=%s episodes=%s max_ep=%d", fid, len(file_list), is_con, con_eps, max_ep)
-                if con_eps:
-                    allowed_eps.update(con_eps)
-                    _dbg.info("[episode_filter] allowed episodes=%s", con_eps)
-            if allowed_eps:
-                before = len(plan)
-                plan_filtered = []
-                for p in plan:
-                    _, ep = _ext_ep(p.target_name or p.origin_name, tv_seasons=tmdb_tv_ss, mr=mr_ep)
-                    if ep is not None and ep in allowed_eps:
-                        plan_filtered.append(p)
-                    else:
-                        _dbg.info("[episode_filter] removed file=%s ep=%s", p.target_name or p.origin_name, ep)
-                plan = plan_filtered
-                removed = before - len(plan)
-                if removed:
-                    self._line(f"连贯集数过滤：保留 E{min(allowed_eps)}-E{max(allowed_eps)}，{len(plan)} 个文件，移除 {removed} 个")
+            # 没有重命名规则时跳过连贯性检查
+            if mr_ep is None:
+                self._line("未设置重命名规则，跳过连贯性检查")
             else:
-                self._line("连贯集数过滤：无连贯集数，取消转存")
-                plan = []
+                allowed_eps: set[int] = set()
+                for file_list, fid, dir_ts in groups:
+                    if not file_list:
+                        continue
+                    is_con, con_eps, max_ep = check_consecutive_episodes(file_list, current_episode=current_ep, min_size=_min_size, filter_words=_filter_words, file_filter_words=_file_filter_words, file_filter_is_any=_file_filter_is_any, file_min_date=_file_min_date, mr=mr_ep)
+                    _dbg.info("[episode_filter] group fid=%s files=%d consecutive=%s episodes=%s max_ep=%d", fid, len(file_list), is_con, con_eps, max_ep)
+                    if con_eps:
+                        allowed_eps.update(con_eps)
+                        _dbg.info("[episode_filter] allowed episodes=%s", con_eps)
+                if allowed_eps:
+                    before = len(plan)
+                    plan_filtered = []
+                    for p in plan:
+                        _, ep = _ext_ep(p.target_name or p.origin_name, mr=mr_ep)
+                        if ep is not None and ep in allowed_eps:
+                            plan_filtered.append(p)
+                        else:
+                            _dbg.info("[episode_filter] removed file=%s ep=%s", p.target_name or p.origin_name, ep)
+                    plan = plan_filtered
+                    removed = before - len(plan)
+                    if removed:
+                        self._line(f"连贯集数过滤：保留 E{min(allowed_eps)}-E{max(allowed_eps)}，{len(plan)} 个文件，移除 {removed} 个")
+                else:
+                    self._line("连贯集数过滤：无连贯集数，取消转存")
+                    plan = []
 
         if plan:
             self._set_stage("save_file")

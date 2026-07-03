@@ -8,11 +8,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from app.extensions.runtime.guessit_fallback import guessit_title_episode_numbers
-
 
 _RE_SEASON_EPISODE = re.compile(r"\bS(\d{1,3})E(\d{1,4})\b", re.IGNORECASE)
-_RE_EPISODE_ONLY = re.compile(r"\b(?:EP(?:ISODE)?|第)\s*0*(\d{1,4})\s*(?:集)?\b", re.IGNORECASE)
+_RE_EPISODE_ONLY = re.compile(r"\b(?:E(?:P(?:ISODE)?)?|第)\s*0*(\d{1,4})\s*(?:集)?\b", re.IGNORECASE)
 _RE_NOISE_TOKEN = re.compile(
     r"\b(?:4k|8k|2160p|1080p|720p|bluray|bdrip|web-?dl|webrip|hdtv|x264|x265|h\.?264|h\.?265|hevc|aac|dts|uhd)\b",
     re.IGNORECASE,
@@ -36,34 +34,24 @@ def _parse_size(size_str: str) -> int:
     return int(num * multipliers.get(unit, 1))
 
 
-def _extract_episode(file_name: str, *, tv_seasons: list[dict[str, Any]] | None = None, mr: Any = None) -> tuple[int | None, int | None]:
-    """从文件名提取季数和集数"""
+def _extract_episode(file_name: str, *, mr: Any = None) -> tuple[int | None, int | None]:
+    """从文件名提取季数和集数（必须使用重命名规则）"""
     text = str(file_name or "").strip()
     if not text:
         return None, None
-    # 有重命名规则时，只走规则
-    if mr is not None:
-        resolved_pattern = str(getattr(mr, "_resolved_pattern", "") or "").strip()
-        resolved_replace = str(getattr(mr, "_resolved_replace", "") or "").strip()
-        if resolved_pattern or resolved_replace:
-            renamed = mr.sub(resolved_pattern, resolved_replace, text)
-            if match := _RE_SEASON_EPISODE.search(renamed):
-                return int(match.group(1)), int(match.group(2))
-            if match := _RE_EPISODE_ONLY.search(renamed):
-                return None, int(match.group(1))
-            return None, None
-    # 没有规则，走原逻辑
-    if match := _RE_SEASON_EPISODE.search(text):
+    # 没有重命名规则，直接返回
+    if mr is None:
+        return None, None
+    resolved_pattern = str(getattr(mr, "_resolved_pattern", "") or "").strip()
+    resolved_replace = str(getattr(mr, "_resolved_replace", "") or "").strip()
+    if not resolved_pattern and not resolved_replace:
+        return None, None
+    # 用规则替换后提取集数
+    renamed = mr.sub(resolved_pattern, resolved_replace, text)
+    if match := _RE_SEASON_EPISODE.search(renamed):
         return int(match.group(1)), int(match.group(2))
-    if match := _RE_EPISODE_ONLY.search(text):
+    if match := _RE_EPISODE_ONLY.search(renamed):
         return None, int(match.group(1))
-    guessed_season, guessed_episode = guessit_title_episode_numbers(
-        text,
-        tv_seasons=tv_seasons,
-        trace_tag="auto_update_check",
-    )
-    if guessed_season is not None or guessed_episode is not None:
-        return guessed_season, guessed_episode
     return None, None
 
 
@@ -87,7 +75,6 @@ def check_consecutive_episodes(
     file_filter_words: list[str] | None = None,
     file_filter_is_any: bool = False,
     file_min_date: str = "",
-    tv_seasons: list[dict[str, Any]] | None = None,
     mr: Any = None,
 ) -> tuple[bool, list[int]]:
     """
@@ -156,7 +143,7 @@ def check_consecutive_episodes(
                     pass
 
         # 提取集数
-        season, episode = _extract_episode(file_name, tv_seasons=tv_seasons, mr=mr)
+        season, episode = _extract_episode(file_name, mr=mr)
         if episode is not None and episode >= next_episode:
             valid_episodes.add(episode)
 

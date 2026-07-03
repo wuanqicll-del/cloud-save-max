@@ -213,12 +213,12 @@ const activeAccounts = computed(() => {
   return props.accounts.filter((item) => Boolean(item.enabled) && item.runtime_status === 'active')
 })
 
-const shareDriveType = computed(() => {
-  const dt = detectDriveTypeByUrl(String(state.shareurl || '').trim())
-  return dt ? String(dt) : null
+// 是否设置了重命名规则（pattern和replace都有内容才算）
+const hasRenameRule = computed(() => {
+  return !!(String(state.pattern || '').trim() && String(state.replace || '').trim())
 })
 
-const showAutoUpdateToggle = computed(() => !!shareDriveType.value)
+const showAutoUpdateToggle = computed(() => true)
 
 const unavailableSelectedAccount = computed(() => {
   if (state.account_choice === '__AUTO__') return null
@@ -263,6 +263,11 @@ watch(() => props.syncTasks, (newVal) => {
   const filtered = newSyncTasks.value.filter((t) => !existingUids.has(t.uid))
   if (filtered.length !== newSyncTasks.value.length) newSyncTasks.value = filtered
 }, { deep: true })
+
+// 重命名规则变化时，自动切换自动换链状态
+watch(() => hasRenameRule.value, (hasRule) => {
+  state.auto_update_shareurl = hasRule
+})
 
 const magicRegex = reactive({
   loading: false,
@@ -1488,7 +1493,8 @@ function buildExtraPayload() {
   extra.runweek_mode = state.runweek_mode
   extra.runweek = state.runweek_mode === 'auto' ? [] : clone(state.runweek || [])
   extra.update_subdir_resave_mode = state.update_subdir_resave_mode
-  extra.auto_update_shareurl = showAutoUpdateToggle.value ? Boolean(state.auto_update_shareurl) : false
+  // 没有重命名规则时强制关闭自动换链
+  extra.auto_update_shareurl = (showAutoUpdateToggle.value && hasRenameRule.value) ? Boolean(state.auto_update_shareurl) : false
   return extra
 }
 
@@ -1509,6 +1515,24 @@ function validateBeforeSubmit() {
 
 async function submit() {
   if (!validateBeforeSubmit()) return
+
+  // 没有重命名规则时弹出确认框
+  if (!hasRenameRule.value) {
+    try {
+      await ElMessageBox.confirm(
+        '不设置重命名规则将关闭连贯性检查和自动换链',
+        '提示',
+        {
+          confirmButtonText: '确认',
+          cancelButtonText: '取消',
+          type: 'warning',
+        }
+      )
+    } catch {
+      return // 用户点取消
+    }
+  }
+
   const account_name = state.account_choice !== '__AUTO__' ? state.account_choice : null
   const normalizedShare = normalizeCloud189ShareUrl(state.shareurl.trim())
   const shareurl = (normalizedShare?.url || state.shareurl).trim()
@@ -2278,8 +2302,9 @@ async function submitSaveTemplate() {
           <div class="drawer-form__hint">开启后搜索结果和自动换链候选中会包含被屏蔽分享者的内容</div>
         </el-form-item>
         <el-form-item v-if="showAutoUpdateToggle" label="自动换链">
-          <el-switch v-model="state.auto_update_shareurl" active-text="开启" inactive-text="关闭" />
-          <div class="drawer-form__hint">任务执行成功后会尝试搜索同剧更新集数，并自动替换为下次执行使用的新链接。</div>
+          <el-switch v-model="state.auto_update_shareurl" :disabled="!hasRenameRule" active-text="开启" inactive-text="关闭" />
+          <div class="drawer-form__hint">任务执行后如果当前进度小于最新进度会寻找拥有更高进度的链接替换转存</div>
+          <div v-if="!hasRenameRule" class="drawer-form__hint" style="color: var(--el-color-warning);">请先设置匹配表达式和替换表达式</div>
         </el-form-item>
         <el-form-item label="文件夹筛选">
           <el-input v-model="state.addition.folder_filter" placeholder="可选，用 | 分隔，如：hdr|4k">

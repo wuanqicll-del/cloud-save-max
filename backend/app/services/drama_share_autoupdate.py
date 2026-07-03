@@ -660,7 +660,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                 file_filter_words=file_filter_words,
                 file_filter_is_any=file_filter_is_any,
                 file_min_date=file_min_date,
-                tv_seasons=tv_seasons if isinstance(tv_seasons, list) else None,
                 mr=mr,
             )
             group_ts = 0
@@ -749,7 +748,6 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                     file_filter_words=file_filter_words,
                     file_filter_is_any=file_filter_is_any,
                     file_min_date=file_min_date,
-                    tv_seasons=tv_seasons if isinstance(tv_seasons, list) else None,
                     mr=mr,
                 )
                 group_ts = 0
