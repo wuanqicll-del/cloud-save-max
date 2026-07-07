@@ -166,9 +166,15 @@ watch(
           </div>
           <div class="app-aside-actions__row">
             <span class="app-aside-actions__label">版本</span>
-            <span class="app-version" :title="`${buildTag || ''} ${buildSha || ''}`.trim()">
-              {{ versionText }}
-            </span>
+            <a
+              class="app-version app-version-link"
+              :title="`${buildTag || ''} ${buildSha || ''}`.trim()"
+              href="https://github.com/wuanqicll-del/cloud-save-max"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ versionText }} <span class="app-github-text">GitHub</span>
+            </a>
           </div>
           <div class="app-aside-actions__row">
             <span class="app-aside-actions__label">账号</span>
@@ -190,7 +196,12 @@ watch(
           <div class="app-logo__mark">XM</div>
           <div>
             <div class="app-logo__title">追剧一体化平台</div>
-            <div class="app-logo__subtitle">导航 · {{ versionText }}</div>
+            <a
+              class="app-logo__subtitle app-version-link"
+              href="https://github.com/wuanqicll-del/cloud-save-max"
+              target="_blank"
+              rel="noopener noreferrer"
+            >{{ versionText }} <span class="app-github-text">GitHub</span></a>
           </div>
         </div>
       </template>
