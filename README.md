@@ -5,7 +5,7 @@
 [![wiki](https://img.shields.io/badge/wiki-Documents-green?logo=github)](https://github.com/Cp0204/quark-auto-save/wiki)
 [![GitHub releases](https://img.shields.io/github/v/release/wuanqicll-del/cloud-save-max?logo=github)](https://github.com/wuanqicll-del/cloud-save-max)
 [![Docker pulls](https://img.shields.io/docker/pulls/wuanqicll/cloud-save-max?logo=docker&logoColor=white)](https://hub.docker.com/r/wuanqicll/cloud-save-max)
-[docker-image-size-image]: https://img.shields.io/docker/image-size/wuanqicll/cloud-save-max/latest?logo=docker&logoColor=white
+[docker-image-size-image]: https://img.shields.io/docker/image-size/wuanqicll/cloud-save-max?logo=docker&logoColor=white
 </div>
 
 ## 项目简介
