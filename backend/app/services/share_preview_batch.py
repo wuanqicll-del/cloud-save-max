@@ -359,7 +359,9 @@ def fetch_share_file_list_grouped(
     folder_exclude: str = "",
     folder_filter_mode: str = "",
     folder_exclude_mode: str = "",
-) -> list[tuple[list[dict[str, Any]], str, Any]]:
+    folder_priority: str = "",
+    folder_priority_mode: str = "",
+) -> list[tuple[list[dict[str, Any]], str, Any, str]]:
     """按子目录分组返回文件列表和目录标识。
     链接有 fid 时返回一组，无 fid 时每个子目录一组。"""
     from app.extensions.runtime.account_manager import DatabaseAccountManager
@@ -418,6 +420,18 @@ def fetch_share_file_list_grouped(
     folder_exclude_keywords = [kw.strip().lower() for kw in folder_exclude.split("|") if kw.strip()] if folder_exclude else []
     folder_filter_is_any = str(folder_filter_mode or "all").strip().lower() == "any"
     folder_exclude_is_all = str(folder_exclude_mode or "any").strip().lower() == "all"
+    folder_priority_keywords = [kw.strip().lower() for kw in folder_priority.split("|") if kw.strip()] if folder_priority else []
+    folder_priority_is_any = str(folder_priority_mode or "all").strip().lower() == "any"
+
+    def _is_priority_match(dir_name: str) -> bool:
+        """判断目录名是否匹配优先级关键词"""
+        if not folder_priority_keywords or not dir_name:
+            return False
+        name_lower = dir_name.lower()
+        if folder_priority_is_any:
+            return any(kw in name_lower for kw in folder_priority_keywords)
+        else:
+            return all(kw in name_lower for kw in folder_priority_keywords)
 
     def _collect_from_dir(fid: str, dir_ts: Any = None, dir_name: str = "") -> list[tuple[list[dict[str, Any]], str, Any]]:
         """收集目录下的文件，按层级分组返回。
@@ -470,16 +484,34 @@ def fetch_share_file_list_grouped(
                         "updated_at": _pick_updated_at(item),
                     })
             if local_files and collect_files:
-                groups.append((local_files, f, f_ts))
+                groups.append((local_files, f, f_ts, f_name))
             return groups
 
         return _walk(fid, 1, dir_ts, f_name=dir_name, is_root=True)
+
+    def _sort_by_priority(groups: list[tuple[list[dict[str, Any]], str, Any]]) -> list[tuple[list[dict[str, Any]], str, Any]]:
+        """按优先级排序：匹配关键词的文件夹排前面"""
+        if not folder_priority_keywords:
+            return groups
+        
+        priority_groups = []
+        normal_groups = []
+        for g in groups:
+            # g 是 (files, fid, ts, dir_name) 的元组
+            dir_name = g[3] if len(g) > 3 else ""
+            if _is_priority_match(dir_name):
+                priority_groups.append(g)
+            else:
+                normal_groups.append(g)
+        
+        # 优先级组排前面，保持各自内部顺序
+        return priority_groups + normal_groups
 
     # 有 fid 的情况：跟原逻辑一样，返回一组
     if extracted_pdir_fid:
         groups = _collect_from_dir(extracted_pdir_fid)
         if groups:
-            return groups
+            return _sort_by_priority(groups)
         return []
 
     # 无 fid 的情况：按根目录下的子目录分组
@@ -505,7 +537,7 @@ def fetch_share_file_list_grouped(
                 if g[0]:
                     groups.append(g)
 
-    return groups
+    return _sort_by_priority(groups)
 
 
 def preview_share_batch(db: Session, payload: SharePreviewBatchIn) -> tuple[SharePreviewBatchOut, bool]:
@@ -687,15 +719,7 @@ def preview_share_batch(db: Session, payload: SharePreviewBatchIn) -> tuple[Shar
                         last_error = f"账号 {str(getattr(account, 'name', '') or '').strip()}: {_safe_error(e)}"
                         continue
                     if latest_video and latest_video.get("name"):
-                        try:
-                            from app.extensions.runtime.guessit_fallback import guessit_episode_numbers
-
-                            s, e2 = guessit_episode_numbers(str(latest_video.get("name") or ""), trace_tag="preview_batch")
-                            if s is not None and e2 is not None:
-                                latest_video["season"] = int(s)
-                                latest_video["episode"] = int(e2)
-                        except Exception:
-                            pass
+                        pass
                     ok = True
                     used_name = str(getattr(account, "name", "") or "").strip() or None
                     break

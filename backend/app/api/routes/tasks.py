@@ -301,12 +301,8 @@ def _task_out(
         savepath=item.savepath,
         pattern=item.pattern,
         replace=item.replace,
-        enddate=item.enddate,
         ignore_extension=item.ignore_extension,
-        sort_index=item.sort_index,
-        startfid=item.startfid,
         account_name=item.account_name,
-        update_subdir=item.update_subdir,
         tmdb_id=getattr(item, "tmdb_id", None),
         tmdb_media_type=getattr(item, "tmdb_media_type", None),
         tmdb_status=tmdb_status,
@@ -954,12 +950,8 @@ def post_run_task_stream_by_payload(request: Request, payload: TaskCreateIn, cur
                     savepath=str(payload.savepath or ""),
                     pattern=(str(payload.pattern) if payload.pattern is not None else None),
                     replace=(str(payload.replace) if payload.replace is not None else None),
-                    enddate=(str(payload.enddate) if payload.enddate is not None else None),
                     ignore_extension=bool(payload.ignore_extension),
-                    sort_index=(int(payload.sort_index) if payload.sort_index is not None else None),
-                    startfid=(str(payload.startfid) if payload.startfid is not None else None),
                     account_name=(str(payload.account_name) if payload.account_name is not None else None),
-                    update_subdir=(str(payload.update_subdir) if payload.update_subdir is not None else None),
                     tmdb_id=(int(payload.tmdb_id) if payload.tmdb_id is not None else None),
                     tmdb_media_type=(str(payload.tmdb_media_type) if payload.tmdb_media_type is not None else None),
                     enabled=True,
@@ -1118,37 +1110,16 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
     pattern = str(payload.pattern or "")
     replace = str(payload.replace or "")
     savepath = str(payload.savepath or "").strip().rstrip("/")
-    update_subdir = str(payload.update_subdir or "").strip()
-    startfid = str(payload.startfid or "").strip()
     ignore_ext = bool(payload.ignore_extension)
 
     from app.services.tmdb_settings import get_or_create_tmdb_setting, get_tmdb_runtime_config
 
     tmdb_cfg = get_tmdb_runtime_config(get_or_create_tmdb_setting(db))
-    disable_guessit_fallback = bool(tmdb_cfg.get("disable_guessit_tmdb_fallback_rename") or False)
-    tv_tpl = str(tmdb_cfg.get("guessit_tmdb_tv_rename_template") or "").strip()
-    movie_tpl = str(tmdb_cfg.get("guessit_tmdb_movie_rename_template") or "").strip()
     tmdb_series_title = None
     tmdb_tv_seasons = None
     tmdb_year = None
     tmdb_id = int(payload.tmdb_id) if payload.tmdb_id is not None else 0
     tmdb_media_type = str(payload.tmdb_media_type or "").strip().lower()
-    if not disable_guessit_fallback and tmdb_id > 0 and tmdb_media_type in ("movie", "tv"):
-        try:
-            from app.services.tmdb_cache import get_tmdb_detail_cached
-
-            configured, detail, _, _episode_weekdays, _row = get_tmdb_detail_cached(db, media_type=tmdb_media_type, tmdb_id=tmdb_id)
-            if configured and isinstance(detail, dict):
-                tmdb_series_title = detail.get("name") if tmdb_media_type == "tv" else detail.get("title")
-                if tmdb_media_type == "tv":
-                    raw_seasons = detail.get("seasons")
-                    tmdb_tv_seasons = raw_seasons if isinstance(raw_seasons, list) else None
-                if tmdb_media_type == "movie":
-                    rd = str(detail.get("release_date") or "").strip()
-                    if len(rd) >= 4 and rd[:4].isdigit():
-                        tmdb_year = int(rd[:4])
-        except Exception:
-            tmdb_series_title = None
 
     dir_file_list: list[dict] = []
     dir_filename_list: list[str] = []
@@ -1205,13 +1176,9 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
     mr.set_taskname(taskname)
     pattern, replace = mr.magic_regex_conv(pattern, replace)
     try:
-        compiled_search = re.compile(pattern) if pattern else None
+        compiled_search = re.compile(pattern, re.IGNORECASE) if pattern else None
     except re.error as e:
         raise bad_request("TASK_REGEX_INVALID", f"pattern 正则不合法: {e}")
-    try:
-        compiled_subdir = re.compile(update_subdir) if update_subdir else None
-    except re.error as e:
-        raise bad_request("TASK_REGEX_INVALID", f"update_subdir 正则不合法: {e}")
     video_exts = {
         ".mp4",
         ".mkv",
@@ -1242,23 +1209,6 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
         except Exception:
             return None
 
-    start_ts = None
-    fid_keep = None
-    if startfid:
-        start_item = next((f for f in raw_items if str(_pick_fid(f)).strip() == startfid), None)
-        if start_item:
-            start_ts = _to_ts(_pick_updated_at(start_item))
-            if start_ts is None:
-                sorted_list = sorted(raw_items, key=lambda x: _to_ts(_pick_updated_at(x)) or 0, reverse=True)
-                kept: list[str] = []
-                for f in sorted_list:
-                    fid = str(_pick_fid(f)).strip()
-                    if fid == startfid:
-                        break
-                    if fid:
-                        kept.append(fid)
-                fid_keep = set(kept)
-
     preview_list: list[dict] = []
     for raw in raw_items[: payload.max_items]:
         fid = _pick_fid(raw)
@@ -1287,8 +1237,21 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
             folder_filter_str = str(payload.folder_filter or "").strip()
             folder_exclude_str = str(payload.folder_exclude or "").strip()
             dir_min_date_str = str(payload.dir_min_date or "").strip()
-            if folder_filter_str or folder_exclude_str or dir_min_date_str:
+            folder_priority_str = str(payload.folder_priority or "").strip()
+            folder_priority_mode_str = str(payload.folder_priority_mode or "").strip()
+            if folder_filter_str or folder_exclude_str or dir_min_date_str or folder_priority_str:
                 name_lower = file_name.lower()
+                # 优先级匹配检查
+                if folder_priority_str:
+                    priority_keywords = [w.strip().lower() for w in folder_priority_str.split("|") if w.strip()]
+                    priority_is_any = str(folder_priority_mode_str or "all").strip().lower() == "any"
+                    if priority_keywords:
+                        if priority_is_any:
+                            if any(kw in name_lower for kw in priority_keywords):
+                                item["priority_match"] = True
+                        else:
+                            if all(kw in name_lower for kw in priority_keywords):
+                                item["priority_match"] = True
                 if folder_filter_str:
                     folder_filter_words = [w.strip().lower() for w in folder_filter_str.split("|") if w.strip()]
                     folder_filter_is_any = str(payload.folder_filter_mode or "all").strip().lower() == "any"
@@ -1325,44 +1288,12 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
             preview_list.append(item)
             continue
 
-        if startfid:
-            if start_ts is not None:
-                if (_to_ts(updated_at) or 0) <= start_ts:
-                    item["file_name_saved"] = "起始及之前"
-                    preview_list.append(item)
-                    continue
-            elif fid_keep is not None:
-                if fid not in fid_keep:
-                    item["file_name_saved"] = "起始及之前"
-                    preview_list.append(item)
-                    continue
-
-        search_re = compiled_subdir if (is_dir and compiled_subdir) else compiled_search
+        search_re = compiled_search
         matched = (not search_re) or bool(search_re.search(file_name))
         if matched:
             file_name_re = file_name
             if not is_dir:
-                if not disable_guessit_fallback and (not pattern.strip()) and (not replace.strip()) and bool(tmdb_series_title):
-                    try:
-                        from app.extensions.runtime.guessit_fallback import guessit_media_target
-
-                        file_name_re = (
-                            guessit_media_target(
-                                file_name,
-                                media_type=tmdb_media_type,
-                                tmdb_title=(str(tmdb_series_title) if tmdb_series_title else None),
-                                tmdb_year=tmdb_year,
-                                tv_seasons=tmdb_tv_seasons,
-                                tv_rename_template=tv_tpl or None,
-                                movie_rename_template=movie_tpl or None,
-                                trace_tag="preview",
-                            )
-                            or file_name
-                        )
-                    except Exception:
-                        file_name_re = file_name
-                else:
-                    file_name_re = mr.sub(pattern, replace, file_name)
+                file_name_re = mr.sub(pattern, replace, file_name)
             saved = mr.is_exists(file_name_re, dir_filename_list, ignore_ext and not is_dir) if dir_filename_list else None
             if saved:
                 item["file_name_saved"] = saved
@@ -1474,17 +1405,6 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
                 except Exception as e:
                     _ft_dbg.info("[file_time_filter] error: %s", e)
 
-    if re.search(r"\{I+\}", replace or ""):
-        try:
-            start_index = int(payload.sort_index or 1)
-        except (TypeError, ValueError):
-            start_index = 1
-        dest_file_list_for_index = []
-        for raw in dir_file_list:
-            dest_file_list_for_index.append({"file_name": _pick_name(raw), "dir": _bool_is_dir(raw)})
-        mr.set_dir_file_list(dest_file_list_for_index, replace, start_index=start_index)
-        mr.sort_file_list(preview_list, start_index=start_index)
-
     items: list[SharePreviewItemOut] = []
     for it in preview_list:
         items.append(
@@ -1506,6 +1426,7 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
                 filtered_by_file_date=bool(it.get("filtered_by_file_date")) if it.get("filtered_by_file_date") else None,
                 filtered_by_folder=it.get("filtered_by_folder") or None,
                 filtered_by_search=bool(it.get("filtered_by_search")) if it.get("filtered_by_search") else None,
+                priority_match=bool(it.get("priority_match")) if it.get("priority_match") else None,
                 dir=bool(it.get("dir")),
                 include_items=it.get("include_items") if it.get("dir") else None,
             )

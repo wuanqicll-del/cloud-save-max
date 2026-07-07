@@ -863,12 +863,12 @@ def fetch_task_suggestions(
             extra = f"排除词过滤：{removed} 条"
             message = f"{message}; {extra}" if message else extra
 
-    # 时间过滤：过滤掉早于指定日期的搜索结果
+    # 时间过滤：过滤掉早于指定日期的搜索结果（没有时间的条目保留）
     if date_from:
         before_count = len(filtered)
         filtered = [
             item for item in filtered
-            if str(item.get("datetime") or "").strip() >= date_from
+            if not str(item.get("datetime") or "").strip() or str(item.get("datetime") or "").strip() >= date_from
         ]
         removed = before_count - len(filtered)
         if removed:

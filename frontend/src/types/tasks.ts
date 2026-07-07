@@ -26,12 +26,8 @@ export type TaskItem = {
   savepath: string
   pattern?: string | null
   replace?: string | null
-  enddate?: string | null
   ignore_extension: boolean
-  sort_index?: number | null
-  startfid?: string | null
   account_name?: string | null
-  update_subdir?: string | null
   tmdb_id?: number | null
   tmdb_media_type?: string | null
   tmdb_status?: string | null

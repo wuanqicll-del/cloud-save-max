@@ -14,12 +14,8 @@ class TaskBase(BaseModel):
     sync_task_uids: list[str] | None = None
     pattern: str | None = Field(default=None, max_length=255)
     replace: str | None = Field(default=None, max_length=255)
-    enddate: str | None = Field(default=None, max_length=32)
     ignore_extension: bool = False
-    sort_index: int | None = None
-    startfid: str | None = Field(default=None, max_length=128)
     account_name: str | None = Field(default=None, max_length=128)
-    update_subdir: str | None = Field(default=None, max_length=255)
     tmdb_id: int | None = None
     tmdb_media_type: str | None = Field(default=None, max_length=8)
     enabled: bool = True
@@ -39,12 +35,8 @@ class TaskUpdateIn(BaseModel):
     sync_task_uids: list[str] | None = None
     pattern: str | None = Field(default=None, max_length=255)
     replace: str | None = Field(default=None, max_length=255)
-    enddate: str | None = Field(default=None, max_length=32)
     ignore_extension: bool | None = None
-    sort_index: int | None = None
-    startfid: str | None = Field(default=None, max_length=128)
     account_name: str | None = Field(default=None, max_length=128)
-    update_subdir: str | None = Field(default=None, max_length=255)
     tmdb_id: int | None = None
     tmdb_media_type: str | None = Field(default=None, max_length=8)
     enabled: bool | None = None
@@ -91,12 +83,8 @@ class TaskOut(BaseModel):
     savepath: str
     pattern: str | None = None
     replace: str | None = None
-    enddate: str | None = None
     ignore_extension: bool
-    sort_index: int | None = None
-    startfid: str | None = None
     account_name: str | None = None
-    update_subdir: str | None = None
     tmdb_id: int | None = None
     tmdb_media_type: str | None = None
     tmdb_status: str | None = None

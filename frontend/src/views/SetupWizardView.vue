@@ -264,18 +264,12 @@ const tmdb = reactive({
   apiKeyInput: '',
   language: 'zh-CN',
   posterLanguage: 'zh-CN',
-  enableGuessitFallbackRename: true,
-  tvRenameTemplate: '{title}.S{season}E{episode}{ext}',
-  movieRenameTemplate: '{title_dot}.{year}{ext}',
 })
 
 function applyTMDBConfig(data: TMDBConfig) {
   tmdb.hasApiKey = Boolean(data.has_api_key)
   tmdb.language = String(data.language || 'zh-CN')
   tmdb.posterLanguage = String(data.poster_language || 'zh-CN')
-  tmdb.enableGuessitFallbackRename = !Boolean(data.disable_guessit_tmdb_fallback_rename)
-  tmdb.tvRenameTemplate = String(data.guessit_tmdb_tv_rename_template || '{title}.S{season}E{episode}{ext}')
-  tmdb.movieRenameTemplate = String(data.guessit_tmdb_movie_rename_template || '{title_dot}.{year}{ext}')
 }
 
 async function refreshTMDB() {
@@ -296,9 +290,6 @@ async function saveTMDB() {
     const payload: any = {
       language: tmdb.language ? String(tmdb.language).trim() : null,
       poster_language: tmdb.posterLanguage ? String(tmdb.posterLanguage).trim() : null,
-      disable_guessit_tmdb_fallback_rename: !Boolean(tmdb.enableGuessitFallbackRename),
-      guessit_tmdb_tv_rename_template: tmdb.tvRenameTemplate ? String(tmdb.tvRenameTemplate).trim() : null,
-      guessit_tmdb_movie_rename_template: tmdb.movieRenameTemplate ? String(tmdb.movieRenameTemplate).trim() : null,
     }
     const apiKey = String(tmdb.apiKeyInput || '').trim()
     if (apiKey) payload.api_key = apiKey
@@ -499,15 +490,6 @@ onBeforeUnmount(() => {
           </el-form-item>
           <el-form-item label="海报语言">
             <el-input v-model="tmdb.posterLanguage" placeholder="例如：zh-CN" />
-          </el-form-item>
-          <el-form-item>
-            <el-switch v-model="tmdb.enableGuessitFallbackRename" active-text="启用 guessit+TMDB 兜底重命名" inactive-text="关闭兜底重命名" />
-          </el-form-item>
-          <el-form-item label="TV 重命名模板">
-            <el-input v-model="tmdb.tvRenameTemplate" />
-          </el-form-item>
-          <el-form-item label="Movie 重命名模板">
-            <el-input v-model="tmdb.movieRenameTemplate" />
           </el-form-item>
         </el-form>
 

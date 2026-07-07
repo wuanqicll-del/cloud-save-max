@@ -65,14 +65,12 @@ TASK_FIELDS: list[dict[str, Any]] = [
     {"key": "__magic_rule__", "label": "内置规则", "type": "action", "default": "", "display_key": "__magic_rule_label__", "transient": True},
     {"key": "pattern", "label": "匹配规则", "type": "str", "default": ""},
     {"key": "replace", "label": "替换规则", "type": "str", "default": ""},
-    {"key": "update_subdir", "label": "子目录模板", "type": "str", "default": ""},
     {"key": "__tmdb_bind__", "label": "TMDB 关联", "type": "action", "default": "", "display_key": "__tmdb_label__", "transient": True},
     {"key": "tmdb_id", "label": "TMDB ID", "type": "int", "default": None, "editor": False},
     {"key": "tmdb_media_type", "label": "TMDB 类型", "type": "enum", "options": ["", "tv", "movie"], "default": "", "editor": False},
     {"key": "sync_task_uids", "label": "关联同步任务", "type": "list", "default": [], "display_key": "sync_task_names"},
     {"key": "enabled", "label": "启用任务", "type": "bool", "default": True, "editor": False},
     {"key": "ignore_extension", "label": "忽略扩展名", "type": "bool", "default": False},
-    {"key": "startfid", "label": "起始文件", "type": "str", "default": "", "display_key": "__startfid_label__"},
 ]
 
 SYNC_FIELDS: list[dict[str, Any]] = [
@@ -119,9 +117,6 @@ SETTING_FIELD_MAP: dict[str, dict[str, dict[str, Any]]] = {
         "has_api_key": {"label": "已配置 API Key", "type": "bool", "editor": False},
         "language": {"label": "元数据语言", "type": "str"},
         "poster_language": {"label": "海报语言", "type": "str"},
-        "disable_guessit_tmdb_fallback_rename": {"label": "关闭 Guessit 回退重命名", "type": "bool"},
-        "guessit_tmdb_tv_rename_template": {"label": "剧集重命名模板", "type": "str"},
-        "guessit_tmdb_movie_rename_template": {"label": "电影重命名模板", "type": "str"},
     },
     "openlist": {
         "url": {"label": "OpenList 地址", "type": "str"},
@@ -485,17 +480,6 @@ def _share_folder_label(shareurl: str, stack: list[dict[str, Any]] | None = None
     path = "/" + "/".join(parts) if parts else "/"
     fid = str(((stack or [])[-1] or {}).get("pdir_fid") or "").strip() if stack else str(_extract_task_share_fid(shareurl) or "").strip()
     return f"{path} · {fid}" if fid else f"根目录 ({path})"
-
-
-def _startfid_label_from_item(item: dict[str, Any] | None) -> str:
-    payload = dict(item or {})
-    name = str(payload.get("file_name") or payload.get("name") or "").strip()
-    fid = str(payload.get("fid") or "").strip()
-    if name and fid:
-        return f"{name} · {fid}"
-    if name:
-        return name
-    return fid or "-"
 
 
 def _tmdb_binding_label(draft: dict[str, Any]) -> str:
@@ -1015,11 +999,8 @@ class TelegramBotHandler:
             "taskname": str(_get_nested(draft, "taskname") or "").strip() or None,
             "pattern": str(_get_nested(draft, "pattern") or "").strip() or None,
             "replace": str(_get_nested(draft, "replace") or "").strip() or None,
-            "sort_index": int(_get_nested(draft, "sort_index") or 0) or None,
             "savepath": str(_get_nested(draft, "savepath") or "").strip() or None,
             "ignore_extension": bool(_get_nested(draft, "ignore_extension")) if _get_nested(draft, "ignore_extension") is not None else None,
-            "update_subdir": str(_get_nested(draft, "update_subdir") or "").strip() or None,
-            "startfid": str(_get_nested(draft, "startfid") or "").strip() or None,
             "tmdb_id": tmdb_id,
             "tmdb_media_type": str(_get_nested(draft, "tmdb_media_type") or "").strip() or None,
         }
@@ -1031,12 +1012,6 @@ class TelegramBotHandler:
         _set_nested(payload, "__share_folder_label__", _share_folder_label(shareurl, stack))
         _set_nested(payload, "__magic_rule_label__", _magic_rule_binding_label(payload))
         _set_nested(payload, "__tmdb_label__", _tmdb_binding_label(payload))
-        startfid = str(_get_nested(payload, "startfid") or "").strip()
-        current_label = str(_get_nested(payload, "__startfid_label__") or "").strip()
-        if startfid and not current_label:
-            _set_nested(payload, "__startfid_label__", startfid)
-        if not startfid:
-            _set_nested(payload, "__startfid_label__", "-")
         return payload
 
     def _auto_resolve_task_share_folder(self, db: Session, draft: dict[str, Any]) -> str | None:
@@ -1102,12 +1077,10 @@ class TelegramBotHandler:
         _set_nested(draft, "shareurl", resolved_shareurl)
         auto_resolved_shareurl = self._auto_resolve_task_share_folder(db, draft) or resolved_shareurl
         _set_nested(draft, "shareurl", auto_resolved_shareurl)
-        _set_nested(draft, "startfid", "")
-        _set_nested(draft, "__startfid_label__", "-")
         _set_nested(draft, "__share_folder_label__", _share_folder_label(auto_resolved_shareurl))
         return draft, str(info.get("preview_message") or "").strip() or None
 
-    def _show_task_share_browser(self, db: Session, chat_id: int, *, picker: str = "folder", message_id: int | None = None) -> None:
+    def _show_task_share_browser(self, db: Session, chat_id: int, *, message_id: int | None = None) -> None:
         session = load_session_data(db, chat_id=chat_id, user_id=self.config.user_id)
         ctx = dict(session.context or {})
         draft = dict(ctx.get("draft") or {})
@@ -1121,7 +1094,7 @@ class TelegramBotHandler:
             shareurl=root_shareurl,
             account_name=_get_nested(draft, "account_name"),
             pdir_fid=current_pdir_fid or None,
-            max_items=500 if picker == "startfid" else 200,
+            max_items=200,
             **self._task_preview_kwargs(draft),
         )
         current_shareurl = str(payload.get("resolved_shareurl") or _task_shareurl(root_shareurl, payload.get("pdir_fid"))).strip() or root_shareurl
@@ -1135,67 +1108,41 @@ class TelegramBotHandler:
         rows: list[list[dict[str, str]]] = []
         lines: list[str] = []
         current_folder_label = _share_folder_label(current_shareurl, stack)
-        if picker == "folder":
-            dir_items = [x for x in items if bool(x.get("is_dir"))]
-            lines = [
-                "选择分享目录",
-                f"目录: {current_folder_label}",
-                f"执行账号: {str(payload.get('suggested_account_name') or payload.get('account_name') or '自动')}",
-            ]
-            if stack:
-                rows.append([button("⬆️ 上一级", "brw", "share", "up")])
-            rows.append([button("✅ 选择当前目录", "brw", "share", "sel"), button("🔄 刷新", "brw", "share", "refresh")])
-            for idx, item in enumerate(dir_items):
-                rows.append([button(f"[DIR] {str(item.get('name') or '')[:26]}", "brw", "share", "open", idx)])
-            preview_items = items[:12]
-            if preview_items:
-                lines.append("")
-                lines.append("当前目录内容")
-                for item in preview_items:
-                    if bool(item.get("is_dir")):
-                        count = int(item.get("children_count") or item.get("include_items") or 0) or None
-                        suffix = f" · {count} 项" if count is not None else ""
-                        updated = str(item.get("updated_at_display") or _display_datetime(item.get("updated_at"))).strip()
-                        time_text = f" · {updated}" if updated else ""
-                        lines.append(f"📁 {str(item.get('name') or '-')}{suffix}{time_text}")
-                    else:
-                        original = str(item.get("file_name") or item.get("name") or "-")
-                        renamed = str(item.get("file_name_re") or item.get("file_name_saved") or "x")
-                        size_text = file_size_text(item.get("size"))
-                        updated = str(item.get("updated_at_display") or _display_datetime(item.get("updated_at"))).strip()
-                        lines.append(f"📄 {_short_link_text(original, 52)}")
-                        lines.append(f"   -> {_short_link_text(renamed, 52)}")
-                        lines.append(f"   {size_text} · {updated}")
-            ctx["share_dir_items"] = dir_items
-        else:
-            files = sorted([x for x in items if not bool(x.get("is_dir"))], key=lambda x: str(x.get("updated_at") or ""), reverse=True)
-            lines = [
-                "选择起始文件",
-                f"目录: {current_folder_label}",
-                "点击文件后会写入 startfid。",
-            ]
-            rows.append([button("🧹 清空起始文件", "brw", "start", "clear"), button("🔄 刷新", "brw", "start", "refresh")])
-            for idx, item in enumerate(files):
-                file_name = str(item.get("file_name") or item.get("name") or "")
-                rows.append([button(f"[FILE] {file_name[:24]}", "brw", "start", "pick", idx)])
-            preview_files = files[:12]
-            if preview_files:
-                lines.append("")
-                lines.append("可选文件")
-                for idx, item in enumerate(preview_files, start=1):
+        dir_items = [x for x in items if bool(x.get("is_dir"))]
+        lines = [
+            "选择分享目录",
+            f"目录: {current_folder_label}",
+            f"执行账号: {str(payload.get('suggested_account_name') or payload.get('account_name') or '自动')}",
+        ]
+        if stack:
+            rows.append([button("⬆️ 上一级", "brw", "share", "up")])
+        rows.append([button("✅ 选择当前目录", "brw", "share", "sel"), button("🔄 刷新", "brw", "share", "refresh")])
+        for idx, item in enumerate(dir_items):
+            rows.append([button(f"[DIR] {str(item.get('name') or '')[:26]}", "brw", "share", "open", idx)])
+        preview_items = items[:12]
+        if preview_items:
+            lines.append("")
+            lines.append("当前目录内容")
+            for item in preview_items:
+                if bool(item.get("is_dir")):
+                    count = int(item.get("children_count") or item.get("include_items") or 0) or None
+                    suffix = f" · {count} 项" if count is not None else ""
+                    updated = str(item.get("updated_at_display") or _display_datetime(item.get("updated_at"))).strip()
+                    time_text = f" · {updated}" if updated else ""
+                    lines.append(f"📁 {str(item.get('name') or '-')}{suffix}{time_text}")
+                else:
                     original = str(item.get("file_name") or item.get("name") or "-")
                     renamed = str(item.get("file_name_re") or item.get("file_name_saved") or "x")
                     size_text = file_size_text(item.get("size"))
                     updated = str(item.get("updated_at_display") or _display_datetime(item.get("updated_at"))).strip()
-                    lines.append(f"#{idx} 📄 {_short_link_text(original, 48)}")
-                    lines.append(f"   -> {_short_link_text(renamed, 48)}")
+                    lines.append(f"📄 {_short_link_text(original, 52)}")
+                    lines.append(f"   -> {_short_link_text(renamed, 52)}")
                     lines.append(f"   {size_text} · {updated}")
-            ctx["share_startfid_items"] = files
+        ctx["share_dir_items"] = dir_items
         _set_nested(draft, "__share_folder_label__", current_folder_label)
-        rows.append([button("✏️ 返回编辑器", "brw", picker if picker == "start" else "share", "back"), button("🏠 首页", "home")])
+        rows.append([button("✏️ 返回编辑器", "brw", "share", "back"), button("🏠 首页", "home")])
         mid = self._edit_or_send(chat_id, "\n".join(lines), message_id=message_id or session.last_message_id, reply_markup=keyboard(rows))
         ctx["draft"] = draft
-        ctx["share_picker_mode"] = picker
         ctx["share_root_shareurl"] = root_shareurl
         ctx["share_browse_shareurl"] = current_shareurl
         ctx["share_browse_stack"] = stack
@@ -1523,7 +1470,6 @@ class TelegramBotHandler:
             current_shareurl = str(item.get("shareurl") or "").strip()
             if shareurl and shareurl != current_shareurl:
                 item["shareurl"] = shareurl
-                item["startfid"] = ""
             item, preview_message = self._apply_task_share_autofill(
                 db,
                 item,
@@ -1550,7 +1496,6 @@ class TelegramBotHandler:
             "task_type": "drama",
             "shareurl": shareurl,
             "enabled": True,
-            "startfid": "",
         }
         seed, preview_message = self._apply_task_share_autofill(
             db,
@@ -2255,7 +2200,7 @@ class TelegramBotHandler:
                 ctx["share_browse_shareurl"] = _task_shareurl(root_shareurl, str(item.get("fid") or ""))
                 save_session_data(db, chat_id=chat_id, user_id=self.config.user_id, context=ctx)
                 db.commit()
-                self._show_task_share_browser(db, chat_id, picker="folder", message_id=message_id)
+                self._show_task_share_browser(db, chat_id, message_id=message_id)
                 return
             if action == "up":
                 if stack:
@@ -2265,61 +2210,14 @@ class TelegramBotHandler:
                 ctx["share_browse_shareurl"] = _task_shareurl(root_shareurl, target_fid)
                 save_session_data(db, chat_id=chat_id, user_id=self.config.user_id, context=ctx)
                 db.commit()
-                self._show_task_share_browser(db, chat_id, picker="folder", message_id=message_id)
+                self._show_task_share_browser(db, chat_id, message_id=message_id)
                 return
             if action == "sel":
                 draft["shareurl"] = current_shareurl
-                draft["startfid"] = ""
-                draft["__startfid_label__"] = "-"
                 draft["__share_folder_label__"] = _share_folder_label(current_shareurl, stack)
                 ctx["draft"] = draft
-                for key in ("share_root_shareurl", "share_browse_shareurl", "share_browse_stack", "share_dir_items", "share_startfid_items", "share_picker_mode"):
+                for key in ("share_root_shareurl", "share_browse_shareurl", "share_browse_stack", "share_dir_items", "share_picker_mode"):
                     ctx.pop(key, None)
-                save_session_data(db, chat_id=chat_id, user_id=self.config.user_id, scene="task_editor", step="idle", context=ctx, last_message_id=message_id)
-                db.commit()
-                self._start_editor(
-                    db,
-                    chat_id,
-                    kind="task",
-                    title=_editor_title("task", int(ctx.get("target_id") or 0) or None),
-                    fields=TASK_FIELDS,
-                    draft=draft,
-                    target_id=int(ctx.get("target_id") or 0) or None,
-                    message_id=message_id,
-                    extras={k: v for k, v in ctx.items() if k != "draft"},
-                )
-                return
-            if action == "pick":
-                files = list(ctx.get("share_startfid_items") or [])
-                idx = int(parts[2]) if len(parts) > 2 else -1
-                if idx < 0 or idx >= len(files):
-                    raise ValueError("文件不存在")
-                item = dict(files[idx] or {})
-                draft["startfid"] = str(item.get("fid") or "")
-                draft["__startfid_label__"] = _startfid_label_from_item(item)
-                draft["shareurl"] = current_shareurl
-                draft["__share_folder_label__"] = _share_folder_label(current_shareurl, stack)
-                ctx["draft"] = draft
-                for key in ("share_root_shareurl", "share_browse_shareurl", "share_browse_stack", "share_dir_items", "share_startfid_items", "share_picker_mode"):
-                    ctx.pop(key, None)
-                save_session_data(db, chat_id=chat_id, user_id=self.config.user_id, scene="task_editor", step="idle", context=ctx, last_message_id=message_id)
-                db.commit()
-                self._start_editor(
-                    db,
-                    chat_id,
-                    kind="task",
-                    title=_editor_title("task", int(ctx.get("target_id") or 0) or None),
-                    fields=TASK_FIELDS,
-                    draft=draft,
-                    target_id=int(ctx.get("target_id") or 0) or None,
-                    message_id=message_id,
-                    extras={k: v for k, v in ctx.items() if k != "draft"},
-                )
-                return
-            if action == "clear":
-                draft["startfid"] = ""
-                draft["__startfid_label__"] = "-"
-                ctx["draft"] = draft
                 save_session_data(db, chat_id=chat_id, user_id=self.config.user_id, scene="task_editor", step="idle", context=ctx, last_message_id=message_id)
                 db.commit()
                 self._start_editor(
@@ -2336,7 +2234,7 @@ class TelegramBotHandler:
                 return
             if action in {"refresh", "back"}:
                 if action == "back":
-                    for key in ("share_root_shareurl", "share_browse_shareurl", "share_browse_stack", "share_dir_items", "share_startfid_items", "share_picker_mode"):
+                    for key in ("share_root_shareurl", "share_browse_shareurl", "share_browse_stack", "share_dir_items", "share_picker_mode"):
                         ctx.pop(key, None)
                     save_session_data(db, chat_id=chat_id, user_id=self.config.user_id, scene="task_editor", step="idle", context=ctx, last_message_id=message_id)
                     db.commit()
@@ -2352,7 +2250,7 @@ class TelegramBotHandler:
                         extras={k: v for k, v in ctx.items() if k != "draft"},
                     )
                     return
-                self._show_task_share_browser(db, chat_id, picker="startfid" if mode == "start" else "folder", message_id=message_id)
+                self._show_task_share_browser(db, chat_id, message_id=message_id)
                 return
         if mode == "sync":
             field = str(ctx.get("browse_field") or "")
@@ -2743,16 +2641,13 @@ class TelegramBotHandler:
             self._show_task_drive_browser(db, chat_id, message_id=message_id)
             return
         if kind == "task" and field == "__share_folder__":
-            self._show_task_share_browser(db, chat_id, picker="folder", message_id=message_id)
+            self._show_task_share_browser(db, chat_id, message_id=message_id)
             return
         if kind == "task" and field == "__magic_rule__":
             self._show_task_magic_rule_selector(db, chat_id, message_id=message_id)
             return
         if kind == "task" and field == "__tmdb_bind__":
             self._show_task_tmdb_prompt(db, chat_id, message_id=message_id)
-            return
-        if kind == "task" and field == "startfid":
-            self._show_task_share_browser(db, chat_id, picker="startfid", message_id=message_id)
             return
         if kind == "task" and field == "sync_task_uids":
             self._show_task_sync_selector(db, chat_id, message_id=message_id)
@@ -2887,7 +2782,7 @@ class TelegramBotHandler:
         _set_nested(draft, field, value)
         if kind == "task" and field == "shareurl":
             draft, _message = self._apply_task_share_autofill(db, draft)
-            for key in ("share_root_shareurl", "share_browse_shareurl", "share_browse_stack", "share_dir_items", "share_startfid_items", "share_picker_mode"):
+            for key in ("share_root_shareurl", "share_browse_shareurl", "share_browse_stack", "share_dir_items", "share_picker_mode"):
                 ctx.pop(key, None)
         if kind == "task" and field in {"pattern", "replace"}:
             if str(_get_nested(draft, "__magic_rule_key__") or "").strip():

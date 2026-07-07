@@ -34,12 +34,8 @@ type TaskFormPayload = {
   sync_task_uids?: string[]
   pattern?: string | null
   replace?: string | null
-  enddate?: string | null
   ignore_extension: boolean
-  sort_index?: number | null
-  startfid?: string | null
   account_name?: string | null
-  update_subdir?: string | null
   tmdb_id?: number | null
   tmdb_media_type?: string | null
   enabled: boolean
@@ -92,15 +88,10 @@ const state = reactive({
   pattern: '' as string | null,
   replace: '' as string | null,
   ignore_extension: false,
-  sort_index: null as number | null,
-  startfid: '' as string | null,
-  update_subdir: '' as string | null,
-  enddate: '' as string | null,
   tmdb_id: null as number | null,
   tmdb_media_type: null as string | null,
   runweek_mode: 'manual' as 'auto' | 'manual',
   runweek: [1, 2, 3, 4, 5, 6, 7] as number[],
-  update_subdir_resave_mode: 'none',
   addition: {} as Record<string, any>,
   extra: {} as Record<string, any>,
 })
@@ -304,12 +295,6 @@ const sharePicker = reactive({
   items: [] as SharePreviewItem[],
   sharerName: '' as string,
   isPreferredSharer: false,
-})
-
-const startfidPicker = reactive({
-  visible: false,
-  loading: false,
-  items: [] as SharePreviewItem[],
 })
 
 const shareAuto = reactive({
@@ -585,6 +570,20 @@ async function confirmTmdbLink() {
   state.tmdb_media_type = tmdbLink.type
   if (tmdbLink.type === 'tv' && tmdbLink.configured && state.runweek_mode === 'auto') {
     await applyRunweekFromTmdbUpdateWeekdays(id, 'tv')
+  }
+  // 关联TMDB后，把{SXX}替换成实际季数写入replace
+  if (tmdbLink.type === 'tv') {
+    await ensureTmdbLinkDetail(id)
+    const detail = tmdbLink.detailsById[id]
+    if (detail) {
+      const seasons = Array.isArray(detail.seasons) ? detail.seasons : []
+      const validSeasons = seasons.filter((s: any) => s && typeof s === 'object' && Number(s.season_number) > 0)
+      const last = validSeasons.slice(-1)[0]
+      const sn = Number(last?.season_number) || 0
+      if (sn > 0 && state.replace && String(state.replace).includes('{SXX}')) {
+        state.replace = String(state.replace).replace(/\{SXX\}/g, `S${String(sn).padStart(2, '0')}`)
+      }
+    }
   }
   tmdbLink.visible = false
 }
@@ -1103,14 +1102,6 @@ function getShareurl(shareurl: string, dir?: { fid?: string; name?: string }) {
   return `${raw.split('#')[0]}#/list/share/${fid}`
 }
 
-function sortByUpdatedAtDesc(items: SharePreviewItem[]) {
-  return [...items].sort((a, b) => {
-    const av = Number(a.updated_at) || 0
-    const bv = Number(b.updated_at) || 0
-    return bv - av
-  })
-}
-
 function normalizeSavepath(value: string) {
   const s = String(value || '').trim()
   if (!s) return ''
@@ -1268,12 +1259,26 @@ async function autoFillSavepath(runId: number) {
   const category = categoryFromTmdb(mt, detail)
   const titleFromTmdb = String(detail?.name || detail?.title || '').trim()
   const baseNameSeg = String(state.taskname || '').trim() || titleFromTmdb
-  const year = yearFromTmdbDetail(mt, detail)
-  const nameSeg = appendYearSuffix(baseNameSeg, year)
-  if (!nameSeg) return
-
   const seasonCount = Number(detail?.number_of_seasons) || 0
   const needSeason = mt === 'tv' && seasonCount > 1
+
+  // 获取最新季数和年份（和 driveSavepathHint 一样的逻辑）
+  let seasonSuffix = ''
+  let year: number | null = yearFromTmdbDetail(mt, detail)  // 默认取首播年份
+  if (needSeason && detail) {
+    const seasons = Array.isArray(detail?.seasons) ? detail.seasons : []
+    const validSeasons = seasons.filter((s: any) => s && Number(s.season_number) > 0)
+    const last = validSeasons.slice(-1)[0]
+    const sn = Number(last?.season_number) || 1
+    seasonSuffix = `/Season ${sn}`
+    // 年份取最新季的播出年份，没有则取剧的首播年份
+    const seasonAirDate = String(last?.air_date || '')
+    if (seasonAirDate.length >= 4 && /^\d{4}/.test(seasonAirDate)) {
+      year = Number(seasonAirDate.slice(0, 4))
+    }
+  }
+  const nameSeg = appendYearSuffix(baseNameSeg, year)
+  if (!nameSeg) return
 
   const filteredByCat = candidates.filter((t) => existingTaskCategory(t) === category)
   const pool = filteredByCat.length ? filteredByCat : candidates
@@ -1296,8 +1301,7 @@ async function autoFillSavepath(runId: number) {
 
   let root = ensureCategorySegment(baseRoot, category)
   root = normalizeSavepath(root)
-  let suggested = normalizeSavepath(`${root}/${nameSeg}`)
-  if (needSeason) suggested = normalizeSavepath(`${suggested}`)
+  let suggested = normalizeSavepath(`${root}/${nameSeg}${seasonSuffix}`)
 
   saveAuto.applying = true
   try {
@@ -1338,10 +1342,6 @@ function syncState() {
     state.pattern = props.task.pattern || null
     state.replace = props.task.replace || null
     state.ignore_extension = props.task.ignore_extension
-    state.sort_index = props.task.sort_index ?? null
-    state.startfid = props.task.startfid || null
-    state.update_subdir = props.task.update_subdir || null
-    state.enddate = props.task.enddate || null
     state.tmdb_id = props.task.tmdb_id ?? null
     state.tmdb_media_type = props.task.tmdb_media_type ?? null
     state.addition = clone(props.task.addition || {})
@@ -1361,10 +1361,6 @@ function syncState() {
     state.pattern = ''
     state.replace = ''
     state.ignore_extension = true
-    state.sort_index = 1
-    state.startfid = null
-    state.update_subdir = null
-    state.enddate = null
     state.tmdb_id = props.presetTmdb?.tmdb_id ?? null
     state.tmdb_media_type = props.presetTmdb?.tmdb_media_type ?? null
     state.addition = { auto_update_file_min_date: '1' }
@@ -1382,7 +1378,6 @@ function syncState() {
   state.runweek_mode = mode === 'auto' ? 'auto' : 'manual'
   manualRunweekBackup.value = clone(state.runweek || [])
   autoRunweekDays.value = []
-  state.update_subdir_resave_mode = String(state.extra.update_subdir_resave_mode || 'none')
 
   const additionValue: any = state.addition
   if (!additionValue || typeof additionValue !== 'object' || Array.isArray(additionValue)) {
@@ -1475,11 +1470,25 @@ async function refreshMagicRegex() {
   }
 }
 
-function applyMagicRule(key: string) {
+async function applyMagicRule(key: string) {
   const rule = magicRegex.rules.find((r) => r.key === key)
   if (!rule) return
   state.pattern = rule.pattern
   state.replace = rule.replace
+  // 如果已关联TMDB且是电视剧，把{SXX}替换成实际季数
+  if (state.tmdb_id && state.tmdb_media_type === 'tv' && state.replace && String(state.replace).includes('{SXX}')) {
+    await ensureTmdbLinkDetail(Number(state.tmdb_id))
+    const detail = tmdbLink.detailsById[Number(state.tmdb_id)]
+    if (detail) {
+      const seasons = Array.isArray(detail.seasons) ? detail.seasons : []
+      const validSeasons = seasons.filter((s: any) => s && typeof s === 'object' && Number(s.season_number) > 0)
+      const last = validSeasons.slice(-1)[0]
+      const sn = Number(last?.season_number) || 0
+      if (sn > 0) {
+        state.replace = String(state.replace).replace(/\{SXX\}/g, `S${String(sn).padStart(2, '0')}`)
+      }
+    }
+  }
 }
 
 function closeDrawer() {
@@ -1492,7 +1501,6 @@ function buildExtraPayload() {
   const extra = clone(state.extra || {})
   extra.runweek_mode = state.runweek_mode
   extra.runweek = state.runweek_mode === 'auto' ? [] : clone(state.runweek || [])
-  extra.update_subdir_resave_mode = state.update_subdir_resave_mode
   // 没有重命名规则时强制关闭自动换链
   extra.auto_update_shareurl = (showAutoUpdateToggle.value && hasRenameRule.value) ? Boolean(state.auto_update_shareurl) : false
   return extra
@@ -1591,12 +1599,8 @@ async function submit() {
     sync_task_uids: [...(state.sync_task_uids || [])],
     pattern: state.pattern ? String(state.pattern).trim() : null,
     replace: state.replace ? String(state.replace).trim() : null,
-    enddate: state.enddate ? String(state.enddate).trim() : null,
     ignore_extension: Boolean(state.ignore_extension),
-    sort_index: state.sort_index ?? null,
-    startfid: state.startfid ? String(state.startfid).trim() : null,
     account_name,
-    update_subdir: state.update_subdir ? String(state.update_subdir).trim() : null,
     tmdb_id: state.tmdb_id ?? null,
     tmdb_media_type: state.tmdb_media_type ?? null,
     enabled: Boolean(state.enabled),
@@ -1747,20 +1751,20 @@ async function refreshSharePicker(pdir_fid: string | null) {
       taskname: state.taskname || undefined,
       pattern: state.pattern || undefined,
       replace: state.replace || undefined,
-      sort_index: state.sort_index ?? undefined,
       savepath: state.savepath || undefined,
       ignore_extension: state.ignore_extension,
-      update_subdir: state.update_subdir || undefined,
-      startfid: state.startfid || undefined,
       min_size: state.addition?.min_size || undefined,
       filter_words: state.addition?.filter_words || undefined,
       file_filter: state.addition?.file_filter || undefined,
       file_filter_mode: state.addition?.file_filter_mode || undefined,
       file_min_date: state.addition?.file_min_date || undefined,
+      dir_min_date: state.addition?.dir_min_date || undefined,
       folder_filter: state.addition?.folder_filter || undefined,
       folder_exclude: state.addition?.folder_exclude || undefined,
       folder_filter_mode: state.addition?.folder_filter_mode || undefined,
       folder_exclude_mode: state.addition?.folder_exclude_mode || undefined,
+      folder_priority: state.addition?.folder_priority || undefined,
+      folder_priority_mode: state.addition?.folder_priority_mode || undefined,
       tmdb_id: state.tmdb_id ?? undefined,
       tmdb_media_type: state.tmdb_media_type || undefined,
     })
@@ -1799,7 +1803,6 @@ function pickShareFolderCurrent() {
   const current = sharePicker.stack.at(-1)
   if (current?.pdir_fid && current?.name !== '当前目录') {
     state.shareurl = getShareurl(sharePicker.root_shareurl, { fid: current.pdir_fid, name: current.name })
-    state.startfid = null
     sharePicker.visible = false
     ElMessage.success('已选择分享文件夹')
     return
@@ -1807,7 +1810,6 @@ function pickShareFolderCurrent() {
   const fid = extractShareFid(sharePicker.shareurl)
   if (fid) {
     state.shareurl = sharePicker.shareurl
-    state.startfid = null
     sharePicker.visible = false
     ElMessage.success('已选择分享文件夹')
     return
@@ -1815,58 +1817,11 @@ function pickShareFolderCurrent() {
   // 没有文件夹可选（根目录只有文件），直接使用原始分享链接
   if (sharePicker.items.length) {
     state.shareurl = sharePicker.root_shareurl
-    state.startfid = null
     sharePicker.visible = false
     ElMessage.success('已选择分享链接')
     return
   }
   ElMessage.warning('请先进入某个文件夹后再选择')
-}
-
-async function openStartfidPicker() {
-  if (!state.shareurl.trim()) {
-    ElMessage.warning('请先填写分享链接')
-    return
-  }
-  startfidPicker.visible = true
-  startfidPicker.loading = true
-  try {
-    const account_name = state.account_choice !== '__AUTO__' ? state.account_choice : null
-    const data = await previewShare({
-      shareurl: state.shareurl.trim(),
-      account_name,
-      max_items: 500,
-      taskname: state.taskname || undefined,
-      pattern: state.pattern || undefined,
-      replace: state.replace || undefined,
-      sort_index: state.sort_index ?? undefined,
-      savepath: state.savepath || undefined,
-      ignore_extension: state.ignore_extension,
-      update_subdir: state.update_subdir || undefined,
-      startfid: null,
-      min_size: state.addition?.min_size || undefined,
-      filter_words: state.addition?.filter_words || undefined,
-      file_filter: state.addition?.file_filter || undefined,
-      file_filter_mode: state.addition?.file_filter_mode || undefined,
-      file_min_date: state.addition?.file_min_date || undefined,
-      folder_filter: state.addition?.folder_filter || undefined,
-      folder_exclude: state.addition?.folder_exclude || undefined,
-      folder_filter_mode: state.addition?.folder_filter_mode || undefined,
-      folder_exclude_mode: state.addition?.folder_exclude_mode || undefined,
-      tmdb_id: state.tmdb_id ?? undefined,
-      tmdb_media_type: state.tmdb_media_type || undefined,
-    })
-    startfidPicker.items = sortByUpdatedAtDesc(data.items || []).filter((item) => !item.is_dir)
-  } finally {
-    startfidPicker.loading = false
-  }
-}
-
-function selectStartfid(row: SharePreviewItem) {
-  if (row.is_dir) return
-  state.startfid = row.fid
-  startfidPicker.visible = false
-  ElMessage.success('已选择起始文件')
 }
 
 const weekOptions = [
@@ -1979,7 +1934,6 @@ async function autoResolveShareFolder(shareurl: string, runId: number) {
   if (current !== input) {
     shareAuto.lastResolved = current
     state.shareurl = current
-    state.startfid = null
   }
 }
 
@@ -2078,6 +2032,8 @@ function applyTemplate(id: number | null) {
   if (config.search_exclude !== undefined) state.addition.search_exclude = config.search_exclude
   if (config.folder_filter !== undefined) state.addition.folder_filter = config.folder_filter
   if (config.folder_exclude !== undefined) state.addition.folder_exclude = config.folder_exclude
+  if (config.folder_priority !== undefined) state.addition.folder_priority = config.folder_priority
+  if (config.folder_priority_mode !== undefined) state.addition.folder_priority_mode = config.folder_priority_mode
   if (config.auto_update_file_min_date !== undefined) state.addition.auto_update_file_min_date = config.auto_update_file_min_date
   if (config.file_filter !== undefined) state.addition.file_filter = config.file_filter
   if (config.min_size !== undefined) state.addition.min_size = config.min_size
@@ -2122,6 +2078,8 @@ async function submitSaveTemplate() {
   if (state.addition.search_exclude) config.search_exclude = state.addition.search_exclude
   if (state.addition.folder_filter) config.folder_filter = state.addition.folder_filter
   if (state.addition.folder_exclude) config.folder_exclude = state.addition.folder_exclude
+  if (state.addition.folder_priority) config.folder_priority = state.addition.folder_priority
+  if (state.addition.folder_priority_mode) config.folder_priority_mode = state.addition.folder_priority_mode
   if (state.addition.auto_update_file_min_date) config.auto_update_file_min_date = state.addition.auto_update_file_min_date
   // 关键词过滤：保存预设名称或手动输入的关键词
   if (state.addition.filter_rule_name) {
@@ -2156,7 +2114,10 @@ async function submitSaveTemplate() {
 </script>
 
 <template>
-  <el-drawer :model-value="modelValue" :title="isEditing ? '编辑追剧任务' : '新增追剧任务'" :size="isMobile ? '100%' : '620px'" @close="closeDrawer">
+  <el-drawer :model-value="modelValue" :size="isMobile ? '100%' : '620px'" :show-close="false" @close="closeDrawer">
+    <template #header>
+      <div class="drawer-custom-title">{{ isEditing ? '编辑追剧任务' : '新增追剧任务' }}</div>
+    </template>
     <el-form
       v-loading="autoFill.loading"
       :element-loading-text="autoFill.text"
@@ -2275,17 +2236,21 @@ async function submitSaveTemplate() {
             <el-option v-for="t in templateList" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="搜索筛选词">
-          <el-input v-model="state.addition.search_filter" placeholder="可选，用 | 分隔，如：4k|hdr">
-            <template #append>
-              <el-button @click="state.addition.search_filter_mode = state.addition.search_filter_mode === 'any' ? '' : 'any'">{{ state.addition.search_filter_mode === 'any' ? '包含任意' : '包含所有' }}</el-button>
-            </template>
-          </el-input>
-        </el-form-item>
+      </div>
+
+      <div class="drawer-form__section">
+        <div class="drawer-form__section-title">搜索筛选</div>
         <el-form-item label="搜索过滤词">
           <el-input v-model="state.addition.search_exclude" placeholder="可选，用 | 分隔，如：预告|花絮">
             <template #append>
               <el-button @click="state.addition.search_exclude_mode = state.addition.search_exclude_mode === 'all' ? '' : 'all'">{{ state.addition.search_exclude_mode === 'all' ? '包含所有' : '包含任意' }}</el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item label="搜索筛选词">
+          <el-input v-model="state.addition.search_filter" placeholder="可选，用 | 分隔，如：4k|hdr">
+            <template #append>
+              <el-button @click="state.addition.search_filter_mode = state.addition.search_filter_mode === 'any' ? '' : 'any'">{{ state.addition.search_filter_mode === 'any' ? '包含任意' : '包含所有' }}</el-button>
             </template>
           </el-input>
         </el-form-item>
@@ -2306,47 +2271,10 @@ async function submitSaveTemplate() {
           <div class="drawer-form__hint">任务执行后如果当前进度小于最新进度会寻找拥有更高进度的链接替换转存</div>
           <div v-if="!hasRenameRule" class="drawer-form__hint" style="color: var(--el-color-warning);">请先设置匹配表达式和替换表达式</div>
         </el-form-item>
-        <el-form-item label="文件夹筛选">
-          <el-input v-model="state.addition.folder_filter" placeholder="可选，用 | 分隔，如：hdr|4k">
-            <template #append>
-              <el-button @click="state.addition.folder_filter_mode = state.addition.folder_filter_mode === 'any' ? '' : 'any'">{{ state.addition.folder_filter_mode === 'any' ? '包含任意' : '包含所有' }}</el-button>
-            </template>
-          </el-input>
-        </el-form-item>
-        <el-form-item label="文件夹过滤">
-          <el-input v-model="state.addition.folder_exclude" placeholder="可选，用 | 分隔，如：预告|花絮">
-            <template #append>
-              <el-button @click="state.addition.folder_exclude_mode = state.addition.folder_exclude_mode === 'all' ? '' : 'all'">{{ state.addition.folder_exclude_mode === 'all' ? '包含所有' : '包含任意' }}</el-button>
-            </template>
-          </el-input>
-        </el-form-item>
-        <el-form-item label="文件夹时间过滤">
-          <el-date-picker v-model="state.addition.dir_min_date" type="date" value-format="YYYY-MM-DD" placeholder="可选，早于此日期的文件夹将被跳过" style="width: 100%" clearable :editable="false" />
-          <div class="drawer-form__hint">自动换链时跳过自身时间早于此日期的文件夹</div>
-        </el-form-item>
-        <el-form-item label="文件时间过滤">
-          <el-date-picker v-model="state.addition.file_min_date" type="date" value-format="YYYY-MM-DD" placeholder="可选，早于此日期的文件将被跳过" style="width: 100%" clearable :editable="false" />
-          <div class="drawer-form__hint">自动换链时跳过修改时间早于此日期的文件</div>
-          <div style="margin-top: 8px;">
-            <el-switch v-model="state.addition.auto_update_file_min_date" active-value="1" inactive-value="" />
-            <span style="margin-left: 8px; font-size: 13px; color: var(--el-text-color-regular)">自动更新文件时间过滤</span>
-          </div>
-          <div class="drawer-form__hint">转存到影视最新集数时，自动将该文件的修改时间写入上方日期，后续只接受更新的文件</div>
-        </el-form-item>
       </div>
 
       <div class="drawer-form__section">
-        <div class="drawer-form__section-title">保存设置</div>
-        <el-form-item label="保存路径">
-          <el-input v-model="state.savepath" placeholder="/剧集/某电视剧">
-            <template #append>
-              <el-button style="margin-right: -4px" @click="openDrivePicker">选择</el-button>
-              <span style="margin: 0 -4px; color: var(--el-border-color)">|</span>
-              <el-button style="margin-left: -4px" @click="createSaveDir">新建</el-button>
-            </template>
-          </el-input>
-          <div class="drawer-form__hint">选择目录后点击"新建"可提前创建目录，便于关联同步任务时直接使用</div>
-        </el-form-item>
+        <div class="drawer-form__section-title">文件筛选</div>
         <el-form-item label="关键词过滤">
           <el-select
             v-model="state.addition.filter_rule_name"
@@ -2377,18 +2305,44 @@ async function submitSaveTemplate() {
           <el-input v-model="state.addition.min_size" placeholder="可选，如：100MB" />
           <div class="drawer-form__hint">低于此大小的文件不会被转存，支持 B/KB/MB/GB/TB</div>
         </el-form-item>
-        <div class="drawer-form__switch-row">
-          <el-switch v-model="state.ignore_extension" active-text="忽略后缀判重" inactive-text="严格判重" />
-        </div>
-        <el-form-item label="排序基数（sort_index）">
-          <el-input-number v-model="state.sort_index" :min="1" style="width: 100%" />
+        <el-form-item label="文件时间过滤">
+          <el-date-picker v-model="state.addition.file_min_date" type="date" value-format="YYYY-MM-DD" placeholder="可选，早于此日期的文件将被跳过" style="width: 100%" clearable :editable="false" />
+          <div class="drawer-form__hint">自动换链时跳过修改时间早于此日期的文件</div>
+          <div style="margin-top: 8px;">
+            <el-switch v-model="state.addition.auto_update_file_min_date" active-value="1" inactive-value="" />
+            <span style="margin-left: 8px; font-size: 13px; color: var(--el-text-color-regular)">自动更新文件时间过滤</span>
+          </div>
+          <div class="drawer-form__hint">转存到影视最新集数时，自动将该文件的修改时间写入上方日期，后续只接受更新的文件</div>
         </el-form-item>
-        <el-form-item label="文件起始（startfid）">
-          <el-input v-model="state.startfid" placeholder="可选，只转存修改日期 > 此文件的文件">
+      </div>
+
+      <div class="drawer-form__section">
+        <div class="drawer-form__section-title">文件夹筛选</div>
+        <el-form-item label="文件夹过滤">
+          <el-input v-model="state.addition.folder_exclude" placeholder="可选，用 | 分隔，如：预告|花絮">
             <template #append>
-              <el-button :disabled="!state.shareurl" @click="openStartfidPicker">选择</el-button>
+              <el-button @click="state.addition.folder_exclude_mode = state.addition.folder_exclude_mode === 'all' ? '' : 'all'">{{ state.addition.folder_exclude_mode === 'all' ? '包含所有' : '包含任意' }}</el-button>
             </template>
           </el-input>
+        </el-form-item>
+        <el-form-item label="文件夹筛选">
+          <el-input v-model="state.addition.folder_filter" placeholder="可选，用 | 分隔，如：hdr|4k">
+            <template #append>
+              <el-button @click="state.addition.folder_filter_mode = state.addition.folder_filter_mode === 'any' ? '' : 'any'">{{ state.addition.folder_filter_mode === 'any' ? '包含任意' : '包含所有' }}</el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+        <el-form-item label="文件夹优先级">
+          <el-input v-model="state.addition.folder_priority" placeholder="可选，用 | 分隔，如：d|4k">
+            <template #append>
+              <el-button @click="state.addition.folder_priority_mode = state.addition.folder_priority_mode === 'any' ? '' : 'any'">{{ state.addition.folder_priority_mode === 'any' ? '包含任意' : '包含所有' }}</el-button>
+            </template>
+          </el-input>
+          <div class="drawer-form__hint">匹配的文件夹将优先转存，未匹配则走默认逻辑</div>
+        </el-form-item>
+        <el-form-item label="文件夹时间过滤">
+          <el-date-picker v-model="state.addition.dir_min_date" type="date" value-format="YYYY-MM-DD" placeholder="可选，早于此日期的文件夹将被跳过" style="width: 100%" clearable :editable="false" />
+          <div class="drawer-form__hint">自动换链时跳过自身时间早于此日期的文件夹</div>
         </el-form-item>
       </div>
 
@@ -2417,6 +2371,23 @@ async function submitSaveTemplate() {
       </div>
 
       <div class="drawer-form__section">
+        <div class="drawer-form__section-title">保存设置</div>
+        <el-form-item label="保存路径">
+          <el-input v-model="state.savepath" placeholder="/剧集/某电视剧">
+            <template #append>
+              <el-button style="margin-right: -4px" @click="openDrivePicker">选择</el-button>
+              <span style="margin: 0 -4px; color: var(--el-border-color)">|</span>
+              <el-button style="margin-left: -4px" @click="createSaveDir">新建</el-button>
+            </template>
+          </el-input>
+          <div class="drawer-form__hint">选择目录后点击"新建"可提前创建目录，便于关联同步任务时直接使用</div>
+        </el-form-item>
+        <div class="drawer-form__switch-row">
+          <el-switch v-model="state.ignore_extension" active-text="忽略后缀判重" inactive-text="严格判重" />
+        </div>
+      </div>
+
+      <div class="drawer-form__section">
         <div class="drawer-form__section-title">关联同步任务</div>
         <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
           <el-tag
@@ -2433,18 +2404,6 @@ async function submitSaveTemplate() {
 
       <div class="drawer-form__section">
         <div class="drawer-form__section-title">更新与时间</div>
-        <el-form-item label="需转存的文件夹（update_subdir，正则）">
-          <el-input v-model="state.update_subdir" placeholder="例如：^更新$ 或 ^第\\d+季$（留空表示不处理分享中的目录）" />
-        </el-form-item>
-        <el-form-item label="更新目录重存模式">
-          <el-select v-model="state.update_subdir_resave_mode" style="width: 100%">
-            <el-option label="不重存" value="none" />
-            <el-option label="删除后重存" value="delete_then_resave" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="截止日期（YYYY-MM-DD）">
-          <el-input v-model="state.enddate" placeholder="例如：2099-12-31" />
-        </el-form-item>
         <el-form-item label="运行星期">
           <div class="drawer-form__switch-row" style="justify-content: flex-start; gap: 10px; flex-wrap: wrap">
             <el-radio-group v-model="state.runweek_mode">
@@ -2666,6 +2625,7 @@ async function submitSaveTemplate() {
             <span v-else-if="row.filtered_by_file_date" style="color: var(--el-color-danger)">× 早于文件时间过滤</span>
             <span v-else-if="row.filtered_by_folder" style="color: var(--el-color-danger)">× {{ row.filtered_by_folder }}</span>
             <span v-else-if="row.filtered_by_search" style="color: var(--el-color-danger)">× 不匹配筛选规则</span>
+            <span v-else-if="row.dir && row.priority_match" style="color: var(--el-color-warning)">优先</span>
             <span v-else-if="row.dir"></span>
             <span v-else style="color: var(--el-color-danger)">x</span>
           </template>
@@ -2682,53 +2642,6 @@ async function submitSaveTemplate() {
           <el-button type="primary" @click="pickShareFolderCurrent">使用当前文件夹</el-button>
         </div>
       </template>
-    </el-dialog>
-
-    <el-dialog v-model="startfidPicker.visible" title="选择起始文件" :width="shareDialogWidth" :fullscreen="isMobile">
-      <div class="drawer-form__section" style="margin-bottom: 12px">
-        <div class="drawer-form__hint">点击文件行即可选择 startfid。</div>
-      </div>
-      <el-table :data="startfidPicker.items" v-loading="startfidPicker.loading" size="small" style="width: 100%" @row-click="selectStartfid">
-        <el-table-column label="文件名" min-width="320">
-          <template #default="{ row }">
-            <span>{{ row.file_name || row.name }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="大小" width="130">
-          <template #default="{ row }">
-            <span>{{ formatSize(row.size) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="正则处理" min-width="260" sortable :sort-method="sortFileNameRe">
-          <template #default="{ row }">
-            <span
-              v-if="row.file_name_re"
-              style="color: var(--el-color-success)"
-            >
-              {{ row.file_name_re }}
-            </span>
-            <span
-              v-else-if="row.file_name_saved"
-              style="color: var(--el-color-danger)"
-            >
-              × {{ row.file_name_saved }}
-            </span>
-            <span v-else-if="row.filtered_by_size" style="color: var(--el-color-danger)">× 大小小于阈值</span>
-            <span v-else-if="row.filtered_by_keyword" style="color: var(--el-color-danger)">× 匹配过滤词</span>
-            <span v-else-if="row.filtered_by_file_filter" style="color: var(--el-color-danger)">× 不包含筛选词</span>
-            <span v-else-if="row.filtered_by_file_date" style="color: var(--el-color-danger)">× 早于文件时间过滤</span>
-            <span v-else-if="row.filtered_by_folder" style="color: var(--el-color-danger)">× {{ row.filtered_by_folder }}</span>
-            <span v-else-if="row.filtered_by_search" style="color: var(--el-color-danger)">× 不匹配筛选规则</span>
-            <span v-else-if="row.dir"></span>
-            <span v-else style="color: var(--el-color-danger)">x</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="时间" width="170" sortable :sort-method="sortUpdatedAt">
-          <template #default="{ row }">
-            <span>{{ formatTs(row.updated_at) }}</span>
-          </template>
-        </el-table-column>
-      </el-table>
     </el-dialog>
 
     <!-- 新建同步任务弹窗 -->
@@ -2844,10 +2757,12 @@ async function submitSaveTemplate() {
 .drawer-form {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 10px;
 }
 
 .drawer-form__section {
+  position: relative;
+  margin-top: 48px;
   padding: 18px;
   border-radius: 20px;
   background: var(--el-fill-color-blank);
@@ -2855,10 +2770,29 @@ async function submitSaveTemplate() {
 }
 
 .drawer-form__section-title {
-  margin-bottom: 14px;
-  font-size: 14px;
-  font-weight: 600;
+  position: relative;
+  margin-top: -50px;
+  margin-bottom: 24px;
+  margin-left: -18px;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--el-text-color-primary);
+}
+
+.drawer-custom-title {
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  width: 100%;
+}
+
+:deep(.el-drawer__header) {
+  margin-bottom: 0;
+  padding: 16px 20px;
+}
+
+:deep(.el-drawer__close-btn) {
+  display: none;
 }
 
 .drawer-form__switch-row {

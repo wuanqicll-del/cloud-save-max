@@ -8,11 +8,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.extensions.runtime.guessit_fallback import guessit_episode_numbers
 from app.models.drive_account import DriveAccount
 from app.models.task import Task
 from app.models.task_savepath_snapshot import TaskSavepathSnapshot
-from app.services.tmdb_cache import get_tmdb_detail_cached
 
 
 _VIDEO_EXTS = {
@@ -143,13 +141,6 @@ def _is_video_name(name: str) -> bool:
     return ext.lower() in _VIDEO_EXTS
 
 
-def _pick_tv_seasons(details: dict[str, Any] | None) -> list[dict[str, Any]] | None:
-    if not isinstance(details, dict):
-        return None
-    raw = details.get("seasons")
-    return raw if isinstance(raw, list) else None
-
-
 def resolve_saved_latest_progress(
     db: Session,
     *,
@@ -172,16 +163,6 @@ def resolve_saved_latest_progress(
         tmdb_id = int(getattr(task, "tmdb_id", 0) or 0)
     except Exception:
         pass
-
-    tv_seasons = None
-    if tmdb_id > 0 and str(getattr(task, "tmdb_media_type", "") or "").strip().lower() == "tv":
-        configured, detail, _update_weekdays, _episode_weekdays, _row = get_tmdb_detail_cached(
-            db,
-            media_type="tv",
-            tmdb_id=tmdb_id,
-        )
-        if configured and isinstance(detail, dict):
-            tv_seasons = _pick_tv_seasons(detail)
 
     # 加载重命名规则
     from app.extensions.runtime.magic_rename import MagicRename

@@ -36,12 +36,8 @@ export async function createTask(payload: {
   sync_task_uids?: string[]
   pattern?: string | null
   replace?: string | null
-  enddate?: string | null
   ignore_extension?: boolean
-  sort_index?: number | null
-  startfid?: string | null
   account_name?: string | null
-  update_subdir?: string | null
   tmdb_id?: number | null
   tmdb_media_type?: string | null
   enabled?: boolean
@@ -62,12 +58,8 @@ export async function updateTask(
     sync_task_uids: string[]
     pattern: string | null
     replace: string | null
-    enddate: string | null
     ignore_extension: boolean
-    sort_index: number | null
-    startfid: string | null
     account_name: string | null
-    update_subdir: string | null
     tmdb_id: number | null
     tmdb_media_type: string | null
     enabled: boolean
@@ -117,20 +109,20 @@ export async function previewShare(payload: {
   taskname?: string
   pattern?: string | null
   replace?: string | null
-  sort_index?: number | null
   savepath?: string | null
   ignore_extension?: boolean | null
-  update_subdir?: string | null
-  startfid?: string | null
   min_size?: string | null
   filter_words?: string | null
   file_filter?: string | null
   file_filter_mode?: string | null
   file_min_date?: string | null
+  dir_min_date?: string | null
   folder_filter?: string | null
   folder_exclude?: string | null
   folder_filter_mode?: string | null
   folder_exclude_mode?: string | null
+  folder_priority?: string | null
+  folder_priority_mode?: string | null
   tmdb_id?: number | null
   tmdb_media_type?: string | null
 }) {

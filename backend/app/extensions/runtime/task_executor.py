@@ -61,12 +61,8 @@ class TaskExecutor:
             'savepath': task.savepath,
             'pattern': task.pattern or '',
             'replace': task.replace or '',
-            'enddate': task.enddate,
             'ignore_extension': task.ignore_extension,
-            'sort_index': task.sort_index,
-            'startfid': task.startfid,
             'account_name': task.account_name,
-            'update_subdir': task.update_subdir,
             'tmdb_id': task.tmdb_id,
             'tmdb_media_type': task.tmdb_media_type,
             'enabled': task.enabled,
@@ -116,6 +112,7 @@ class TaskExecutor:
         keep_runtime_tree: bool = False,
         _auto_update_depth: int = 0,
         _tried_shareurls: set[str] | None = None,
+        _fallback_candidates: list[dict] | None = None,
     ) -> TaskExecution:
         if not task.enabled:
             raise bad_request('TASK_DISABLED', '任务已禁用')
@@ -155,13 +152,8 @@ class TaskExecutor:
             from app.services.tmdb_settings import get_or_create_tmdb_setting, get_tmdb_runtime_config
 
             cfg = get_tmdb_runtime_config(get_or_create_tmdb_setting(self.db))
-            task_data["disable_guessit_tmdb_fallback_rename"] = bool(cfg.get("disable_guessit_tmdb_fallback_rename") or False)
-            task_data["guessit_tmdb_tv_rename_template"] = str(cfg.get("guessit_tmdb_tv_rename_template") or "").strip()
-            task_data["guessit_tmdb_movie_rename_template"] = str(cfg.get("guessit_tmdb_movie_rename_template") or "").strip()
         except Exception:
-            task_data["disable_guessit_tmdb_fallback_rename"] = False
-            task_data["guessit_tmdb_tv_rename_template"] = ""
-            task_data["guessit_tmdb_movie_rename_template"] = ""
+            pass
 
         if str(getattr(task, "task_type", "") or "") == "drama":
             extra = task_data.get("extra") or {}
@@ -186,31 +178,6 @@ class TaskExecutor:
                     task_data["tmdb_update_weekdays"] = []
                     task_data["tmdb_episode_weekdays"] = []
 
-        if not bool(task_data.get("disable_guessit_tmdb_fallback_rename")):
-            tmdb_id = int(task_data.get("tmdb_id") or 0)
-            tmdb_media_type = str(task_data.get("tmdb_media_type") or "").strip().lower()
-            if tmdb_id > 0 and tmdb_media_type in {"movie", "tv"}:
-                try:
-                    from app.services.tmdb_cache import get_tmdb_detail_cached
-
-                    configured, detail, _weekdays, _episode_weekdays, _row = get_tmdb_detail_cached(
-                        self.db, media_type=tmdb_media_type, tmdb_id=tmdb_id
-                    )
-                    if configured and isinstance(detail, dict):
-                        task_data["tmdb_series_title"] = detail.get("name") if tmdb_media_type == "tv" else detail.get("title")
-                        if tmdb_media_type == "tv":
-                            raw_seasons = detail.get("seasons")
-                            task_data["tmdb_tv_seasons"] = raw_seasons if isinstance(raw_seasons, list) else None
-                        if tmdb_media_type == "movie":
-                            rd = str(detail.get("release_date") or "").strip()
-                            if len(rd) >= 4 and rd[:4].isdigit():
-                                task_data["tmdb_year"] = int(rd[:4])
-                    else:
-                        task_data["tmdb_series_title"] = None
-                except Exception:
-                    task_data["tmdb_series_title"] = None
-            else:
-                task_data["tmdb_series_title"] = None
         if init_account_for_task:
             account_manager.init_for_tasks([task_data])
         default_adapter = account_manager.get_default_adapter()
@@ -462,8 +429,10 @@ class TaskExecutor:
                 log.section("自动换链")
                 if _tried_shareurls is None:
                     _tried_shareurls = set()
+                if _fallback_candidates is None:
+                    _fallback_candidates = []
                 try:
-                    update_result = resolve_drama_shareurl_update(self.db, task, respect_toggle=True, tried_shareurls=_tried_shareurls)
+                    update_result = resolve_drama_shareurl_update(self.db, task, respect_toggle=True, tried_shareurls=_tried_shareurls, fallback_candidates=_fallback_candidates)
                     autoupdate_db_changed = bool(update_result.get("db_changed"))
                     if bool(update_result.get("updated")):
                         season = update_result.get("season")
@@ -496,6 +465,7 @@ class TaskExecutor:
                                 init_account_for_task=False,
                                 _auto_update_depth=_auto_update_depth + 1,
                                 _tried_shareurls=_tried_shareurls,
+                                _fallback_candidates=_fallback_candidates,
                             )
                             return re_execution
                         except Exception as re_exc:
@@ -562,10 +532,12 @@ class TaskExecutor:
             ):
                 if _tried_shareurls is None:
                     _tried_shareurls = set()
+                if _fallback_candidates is None:
+                    _fallback_candidates = []
                 try:
                     log.section("链接失效自动换链")
                     log.line(f"链接失效（阶段={stage}），尝试自动换链")
-                    update_result = resolve_drama_shareurl_update(self.db, task, respect_toggle=True, tried_shareurls=_tried_shareurls)
+                    update_result = resolve_drama_shareurl_update(self.db, task, respect_toggle=True, tried_shareurls=_tried_shareurls, fallback_candidates=_fallback_candidates)
                     autoupdate_db_changed = bool(update_result.get("db_changed"))
                     if bool(update_result.get("updated")):
                         log.line(f"OK: 自动换链成功 new={str(update_result.get('new_shareurl') or '').strip()}")
@@ -579,6 +551,7 @@ class TaskExecutor:
                             init_account_for_task=False,
                             _auto_update_depth=_auto_update_depth + 1,
                             _tried_shareurls=_tried_shareurls,
+                            _fallback_candidates=_fallback_candidates,
                         )
                         return re_execution
                     else:

@@ -48,6 +48,7 @@ const TEMPLATE_FIELDS = [
   { key: 'search_exclude', label: '搜索过滤词', type: 'keyword', hint: '搜索结果标题包含这些词将被过滤，用 | 分隔' },
   { key: 'folder_filter', label: '文件夹筛选', type: 'keyword', hint: '只转存文件夹名称包含这些词的目录，用 | 分隔' },
   { key: 'folder_exclude', label: '文件夹过滤', type: 'keyword', hint: '跳过文件夹名称包含这些词的目录，用 | 分隔' },
+  { key: 'folder_priority', label: '文件夹优先级', type: 'keyword', hint: '匹配的文件夹将优先转存，用 | 分隔' },
   { key: 'auto_update_file_min_date', label: '自动更新文件时间过滤', type: 'switch', hint: '追剧进度追上最新集数时自动更新文件时间过滤' },
   { key: 'filter_words', label: '关键词过滤', type: 'filter_words', hint: '转存时过滤掉文件名包含这些关键词的文件' },
   { key: 'file_filter', label: '关键词筛选', type: 'keyword', hint: '只转存文件名包含这些关键词的文件，用 | 分隔' },
@@ -78,9 +79,6 @@ const tmdb = reactive({
   language: 'zh-CN',
   posterLanguage: 'zh-CN',
   apiKeyInput: '',
-  enableGuessitFallbackRename: true,
-  tvRenameTemplate: '{title}.S{season}E{episode}{ext}',
-  movieRenameTemplate: '{title_dot}.{year}{ext}',
 })
 
 const openlist = reactive({
@@ -190,9 +188,6 @@ function applyTMDBConfig(data: TMDBConfig) {
   tmdb.hasApiKey = Boolean(data.has_api_key)
   tmdb.language = String(data.language || 'zh-CN')
   tmdb.posterLanguage = String(data.poster_language || 'zh-CN')
-  tmdb.enableGuessitFallbackRename = !Boolean(data.disable_guessit_tmdb_fallback_rename)
-  tmdb.tvRenameTemplate = String(data.guessit_tmdb_tv_rename_template || '{title}.S{season}E{episode}{ext}')
-  tmdb.movieRenameTemplate = String(data.guessit_tmdb_movie_rename_template || '{title_dot}.{year}{ext}')
 }
 
 async function refreshTMDB() {
@@ -355,9 +350,6 @@ async function saveTMDB() {
     const payload: any = {
       language: tmdb.language ? String(tmdb.language).trim() : null,
       poster_language: tmdb.posterLanguage ? String(tmdb.posterLanguage).trim() : null,
-      disable_guessit_tmdb_fallback_rename: !Boolean(tmdb.enableGuessitFallbackRename),
-      guessit_tmdb_tv_rename_template: tmdb.tvRenameTemplate ? String(tmdb.tvRenameTemplate).trim() : null,
-      guessit_tmdb_movie_rename_template: tmdb.movieRenameTemplate ? String(tmdb.movieRenameTemplate).trim() : null,
     }
     const apiKey = String(tmdb.apiKeyInput || '').trim()
     if (apiKey) payload.api_key = apiKey
@@ -368,11 +360,6 @@ async function saveTMDB() {
   } finally {
     tmdb.saving = false
   }
-}
-
-function useDefaultRenameTemplates() {
-  tmdb.tvRenameTemplate = '{title}.S{season}E{episode}{ext}'
-  tmdb.movieRenameTemplate = '{title_dot}.{year}{ext}'
 }
 
 async function saveSource(key: 'cloudsaver' | 'pansou') {
@@ -578,6 +565,7 @@ function toggleKeywordMode(key: string) {
     'search_exclude': 'search_exclude_mode',
     'folder_filter': 'folder_filter_mode',
     'folder_exclude': 'folder_exclude_mode',
+    'folder_priority': 'folder_priority_mode',
     'file_filter': 'file_filter_mode',
   }
   const modeKey = modeMap[key]
@@ -597,6 +585,7 @@ function getKeywordModeLabel(key: string): string {
     'search_exclude': 'search_exclude_mode',
     'folder_filter': 'folder_filter_mode',
     'folder_exclude': 'folder_exclude_mode',
+    'folder_priority': 'folder_priority_mode',
     'file_filter': 'file_filter_mode',
   }
   const modeKey = modeMap[key]
@@ -899,7 +888,6 @@ onMounted(() => {
               <div>TMDB 配置</div>
               <div>
                 <el-button text :loading="tmdb.loading" @click="refreshTMDB">刷新</el-button>
-                <el-button text :disabled="tmdb.loading" @click="useDefaultRenameTemplates">默认模板</el-button>
                 <el-button type="primary" :loading="tmdb.saving" :disabled="!canWrite" @click="saveTMDB">保存</el-button>
               </div>
             </div>
@@ -920,60 +908,6 @@ onMounted(() => {
                 <el-option label="中文（zh-CN）" value="zh-CN" />
                 <el-option label="原始语言（original）" value="original" />
               </el-select>
-            </el-form-item>
-            <el-form-item label="启用 guessit+TMDB 兜底重命名">
-              <el-switch v-model="tmdb.enableGuessitFallbackRename" :disabled="!canWrite || !tmdb.hasApiKey" />
-              <div class="page__hint">
-                <div>开启后，追剧任务在 pattern/replace 为空时将按下方模板自动生成目标文件名（不会影响手动配置的保存规则）。</div>
-              </div>
-            </el-form-item>
-            <el-form-item label="电视剧兜底命名模板（TV）">
-              <el-input
-                v-model="tmdb.tvRenameTemplate"
-                type="textarea"
-                :rows="2"
-                :disabled="!tmdb.hasApiKey"
-                placeholder="{title}.S{season}E{episode}{ext}"
-              />
-              <div class="page__hint">
-                <div>可用占位符：</div>
-                <div>- {title}：标题（空格分隔）</div>
-                <div>- {title_dot}：标题（点分隔）</div>
-                <div>- {season}：季（两位数，如 01）</div>
-                <div>- {episode}：集（两位数，如 02）</div>
-                <div>- {season_num}：季（原始数字，如 1）</div>
-                <div>- {episode_num}：集（原始数字，如 2）</div>
-                <div>- {year}：年份（通常为空；为兼容模板保留）</div>
-                <div>- {ext}：扩展名（包含 .，如 .mkv；若模板不写 {ext} 会自动补上）</div>
-                <div>- {orig}：原始文件名（含扩展名）</div>
-                <div>- {orig_base}：原始文件名（不含扩展名）</div>
-                <div>- {orig_base_dot}：orig_base 的点分隔形式</div>
-                <div>- {tags_dot}：清洗后的资源标签（点分隔，可能为空）</div>
-                <div>- {tags_space}：清洗后的资源标签（空格分隔，可能为空）</div>
-                <div>示例：{title}.S{season}E{episode}{ext} → 低智商犯罪.S01E02.mp4</div>
-              </div>
-            </el-form-item>
-            <el-form-item label="电影兜底命名模板（Movie）">
-              <el-input
-                v-model="tmdb.movieRenameTemplate"
-                type="textarea"
-                :rows="2"
-                :disabled="!tmdb.hasApiKey"
-                placeholder="{title_dot}.{year}{ext}"
-              />
-              <div class="page__hint">
-                <div>可用占位符：</div>
-                <div>- {title}：标题（空格分隔）</div>
-                <div>- {title_dot}：标题（点分隔）</div>
-                <div>- {year}：年份（可能为空；为空时会自动清理多余的点/空格/空括号）</div>
-                <div>- {ext}：扩展名（包含 .，如 .mkv；若模板不写 {ext} 会自动补上）</div>
-                <div>- {orig}：原始文件名（含扩展名）</div>
-                <div>- {orig_base}：原始文件名（不含扩展名）</div>
-                <div>- {orig_base_dot}：orig_base 的点分隔形式</div>
-                <div>- {tags_dot}：清洗后的资源标签（点分隔，可能为空）</div>
-                <div>- {tags_space}：清洗后的资源标签（空格分隔，可能为空）</div>
-                <div>示例：{title_dot}.{year}{ext} → The.World.of.Love.2025.mkv</div>
-              </div>
             </el-form-item>
           </el-form>
         </el-card>

@@ -12,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.extensions.runtime.adapter_registry import AdapterRegistry
-from app.extensions.runtime.guessit_fallback import guessit_title_episode_numbers
 from app.extensions.runtime.magic_rename import MagicRename
 from app.models.drive_account import DriveAccount
 from app.services.resource_search import fetch_task_suggestions
@@ -20,47 +19,46 @@ from app.services.tmdb_cache import get_tmdb_detail_cached
 
 logger = logging.getLogger(__name__)
 
-_RE_NON_WORD = re.compile(r"[\s\W_]+", re.UNICODE)
 _RE_SEASON_EPISODE = re.compile(r"\bS(\d{1,3})E(\d{1,4})\b", re.IGNORECASE)
-_RE_EPISODE_ONLY = re.compile(r"\b(?:EP(?:ISODE)?|第)\s*0*(\d{1,4})\s*(?:集)?\b", re.IGNORECASE)
-_RE_YEAR_BRACKETS = re.compile(r"[\(\[（【]\s*(?:19|20)\d{2}\s*[\)\]）】]")
-_RE_SOURCE_PREFIX = re.compile(r"^\s*(?:电视剧|剧集|连续剧|网剧|韩剧|日剧|美剧|英剧|台剧|泰剧|动漫|动画|番剧)\s*[:：]\s*", re.IGNORECASE)
-_RE_NOISE_TOKEN = re.compile(
-    r"\b(?:4k|8k|2160p|1080p|720p|bluray|bdrip|web-?dl|webrip|hdtv|x264|x265|h\.?264|h\.?265|hevc|aac|dts|uhd)\b",
-    re.IGNORECASE,
-)
-_RE_EMOJI = re.compile(
-    r"[\U0001F1E6-\U0001F1FF]"
-    r"|[\U0001F300-\U0001F5FF]"
-    r"|[\U0001F600-\U0001F64F]"
-    r"|[\U0001F680-\U0001F6FF]"
-    r"|[\U0001F700-\U0001F77F]"
-    r"|[\U0001F780-\U0001F7FF]"
-    r"|[\U0001F800-\U0001F8FF]"
-    r"|[\U0001F900-\U0001F9FF]"
-    r"|[\U0001FA00-\U0001FAFF]"
-    r"|[\U00002600-\U000026FF]"
-    r"|[\U00002700-\U000027BF]"
-    r"|[\u200D\uFE0F]",
-    re.UNICODE,
-)
-_TITLE_SEGMENT_SEPARATORS = ("|", "｜", "/", "／")
+_RE_EPISODE_ONLY = re.compile(r"\b(?:E(?:P(?:ISODE)?)?|第)\s*0*(\d{1,4})\s*(?:集)?\b", re.IGNORECASE)
+
+
+
+def _extract_episode_from_file(file_name: str, *, mr: Any = None) -> tuple[int | None, int | None]:
+    """用重命名规则替换文件名后提取季和集"""
+    text = str(file_name or "").strip()
+    if not text:
+        return None, None
+    if mr is None:
+        return None, None
+    resolved_pattern = str(getattr(mr, "_resolved_pattern", "") or "").strip()
+    resolved_replace = str(getattr(mr, "_resolved_replace", "") or "").strip()
+    if not resolved_pattern and not resolved_replace:
+        return None, None
+    renamed = mr.sub(resolved_pattern, resolved_replace, text)
+    if match := _RE_SEASON_EPISODE.search(renamed):
+        return int(match.group(1)), int(match.group(2))
+    if match := _RE_EPISODE_ONLY.search(renamed):
+        return None, int(match.group(1))
+    return None, None
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
 
 
 @dataclass(slots=True)
 class _TMDBContext:
     names: list[str]
     detail: dict[str, Any] | None
-
-
-@dataclass(slots=True)
-class _PreparedSuggestion:
-    suggestion: dict[str, Any]
-    shareurl: str
-    taskname: str
-    datetime_value: str
-    season: int | None
-    episode: int | None
 
 
 def _task_extra(task: Any) -> dict[str, Any]:
@@ -83,26 +81,6 @@ def _task_addition(task: Any) -> dict[str, Any]:
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
-
-
-def _normalize_text(value: str | None) -> str:
-    return _RE_NON_WORD.sub("", str(value or "").strip()).lower()
-
-
-def _normalize_ascii_words(value: str | None) -> str:
-    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
-
-
-def _dedupe_preserve_order(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for raw in values:
-        value = str(raw or "").strip()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        out.append(value)
-    return out
 
 
 def _is_auto_update_enabled(task: Any) -> bool:
@@ -184,104 +162,6 @@ def _rewrite_shareurl_with_fid(shareurl: str, fid: str | None) -> str:
     return f"{url.split('#')[0].strip()}#/list/share/{f}"
 
 
-def _extract_season_episode_from_title(title: str) -> tuple[int | None, int | None]:
-    text = str(title or "").strip()
-    if not text:
-        return None, None
-    if match := _RE_SEASON_EPISODE.search(text):
-        season = int(match.group(1))
-        episode = int(match.group(2))
-        # 处理集数范围，如 S01E01-E34 取最后一集
-        rest = text[match.end():]
-        if range_match := re.match(r"[-~～](?:E|e)?(\d{1,4})", rest):
-            episode = int(range_match.group(1))
-        return season, episode
-    if match := _RE_EPISODE_ONLY.search(text):
-        ep = int(match.group(1))
-        rest = text[match.end():]
-        if range_match := re.match(r"[-~～](?:第|EP|ep|E|e)?\s*(\d{1,4})", rest):
-            ep = int(range_match.group(1))
-        return None, ep
-    return None, None
-
-
-def _resolve_title_progress(title: str, *, tv_seasons: list[dict[str, Any]] | None = None) -> tuple[int | None, int | None]:
-    season, episode = _extract_season_episode_from_title(title)
-    if season is not None and episode is not None:
-        return season, episode
-    guessed_season, guessed_episode = guessit_title_episode_numbers(
-        title,
-        tv_seasons=tv_seasons,
-        trace_tag="shareurl_autoupdate",
-    )
-    if guessed_season is not None or guessed_episode is not None:
-        return guessed_season, guessed_episode
-    return season, episode
-
-
-def _cleanup_title_subject(value: str) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    try:
-        import emoji as _emoji  # type: ignore
-
-        text = _emoji.replace_emoji(text, replace=" ")
-    except Exception:
-        text = _RE_EMOJI.sub(" ", text)
-    text = re.sub(r"^[\s\W_]+", "", text)
-    text = _RE_SOURCE_PREFIX.sub("", text)
-    text = re.sub(r"^[\s\W_]+", "", text)
-    text = _RE_YEAR_BRACKETS.sub(" ", text)
-    text = _RE_SEASON_EPISODE.sub(" ", text)
-    text = re.sub(r"[-~～](?:E|e)?\d{1,4}\b", " ", text)  # 清理集数范围后半段，如 -E34
-    text = _RE_EPISODE_ONLY.sub(" ", text)
-    text = re.sub(r"[-~～](?:第|EP|ep|E|e)?\s*\d{1,4}\b", " ", text)  # 清理集数范围后半段
-    text = _RE_NOISE_TOKEN.sub(" ", text)
-    text = re.sub(r"[\(\[（【].*?[\)\]）】]", " ", text)
-    text = re.sub(r"[:：\-_.,]+", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-def _extract_title_subject_variants(value: str) -> list[str]:
-    cleaned = _cleanup_title_subject(value)
-    if not cleaned:
-        return []
-    variants = [cleaned]
-    for separator in _TITLE_SEGMENT_SEPARATORS:
-        if separator not in cleaned:
-            continue
-        parts = [x.strip() for x in cleaned.split(separator) if str(x or "").strip()]
-        variants.extend(parts)
-    return _dedupe_preserve_order(variants)
-
-
-def _title_matches_tmdb_names(title: str, names: list[str]) -> bool:
-    title_variants = _extract_title_subject_variants(title)
-    if not title_variants:
-        return False
-    normalized_title_variants = {_normalize_text(x) for x in title_variants if _normalize_text(x)}
-    normalized_ascii_variants = {_normalize_ascii_words(x) for x in title_variants if _normalize_ascii_words(x)}
-    for raw_name in names:
-        name = str(raw_name or "").strip()
-        if not name:
-            continue
-        name_variants = _extract_title_subject_variants(name) or [name]
-        for item in name_variants:
-            normalized_name = _normalize_text(item)
-            if normalized_name:
-                for tv in normalized_title_variants:
-                    if normalized_name in tv:
-                        return True
-            normalized_ascii_name = _normalize_ascii_words(item)
-            if normalized_ascii_name:
-                for tv in normalized_ascii_variants:
-                    if normalized_ascii_name in tv:
-                        return True
-    return False
-
-
 def _pick_int(value: Any) -> int | None:
     try:
         number = int(value)
@@ -305,26 +185,6 @@ def _pick_datetime_value(value: str | None) -> int:
         return 0
 
 
-def _prepare_suggestion(
-    suggestion: dict[str, Any],
-    *,
-    tv_seasons: list[dict[str, Any]] | None = None,
-) -> _PreparedSuggestion | None:
-    shareurl = str(suggestion.get("shareurl") or "").strip()
-    if not shareurl:
-        return None
-    title = str(suggestion.get("taskname") or suggestion.get("content") or "").strip()
-    season, episode = _resolve_title_progress(title, tv_seasons=tv_seasons)
-    return _PreparedSuggestion(
-        suggestion=suggestion,
-        shareurl=shareurl,
-        taskname=title,
-        datetime_value=str(suggestion.get("datetime") or "").strip(),
-        season=season,
-        episode=episode,
-    )
-
-
 def _pick_suggestions_for_preview(
     suggestions: list[dict[str, Any]],
     *,
@@ -332,18 +192,7 @@ def _pick_suggestions_for_preview(
     current_episode: int | None,
     tv_seasons: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    prepared_items: list[_PreparedSuggestion] = []
-    for suggestion in suggestions:
-        prepared = _prepare_suggestion(suggestion, tv_seasons=tv_seasons)
-        if prepared is not None:
-            prepared_items.append(prepared)
-
-    # 按集数从高到低排序，没有集数的排后面
-    parsed = [item for item in prepared_items if item.season is not None and item.episode is not None]
-    unknown = [item for item in prepared_items if item.season is None or item.episode is None]
-    parsed.sort(key=lambda item: (int(item.season), int(item.episode)), reverse=True)
-    unknown.sort(key=lambda item: _pick_datetime_value(item.datetime_value), reverse=True)
-    return [item.suggestion for item in parsed + unknown]
+    return [s for s in suggestions if isinstance(s, dict) and str(s.get("shareurl") or "").strip()]
 
 
 def _search_candidates(db: Session, *, names: list[str], drive_type: str = "115", search_filter: str = "", search_exclude: str = "", search_date_from: str = "", search_filter_mode: str = "", search_exclude_mode: str = "") -> tuple[list[dict[str, Any]], bool, dict[str, Any]]:
@@ -385,23 +234,20 @@ def _search_candidates(db: Session, *, names: list[str], drive_type: str = "115"
         if AdapterRegistry.detect_drive_type(shareurl) != drive_type:
             stats["skip_wrong_drive"] = int(stats.get("skip_wrong_drive") or 0) + 1
             continue
-        title = str(item.get("taskname") or item.get("content") or "").strip()
-        if not _title_matches_tmdb_names(title, names):
-            stats["skip_tmdb_mismatch"] = int(stats.get("skip_tmdb_mismatch") or 0) + 1
-            continue
         seen_urls.add(shareurl)
         filtered.append(item)
         stats["kept"] = int(stats.get("kept") or 0) + 1
     return filtered, db_changed, stats
 
 
-def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: bool = True, tried_shareurls: set[str] | None = None) -> dict[str, Any]:
+def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: bool = True, tried_shareurls: set[str] | None = None, fallback_candidates: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     task_id = int(getattr(task, "id", 0) or 0)
     task_uid = str(getattr(task, "task_uid", "") or "").strip()
 
     if not is_auto_update_task(db, task, respect_toggle=respect_toggle):
         return {"checked": False, "updated": False, "reason": "not_applicable"}
 
+    logger.info("自动换链：开始")
     drive_type = _pick_drive_type(db, task) or "quark"
 
     addition = _task_addition(task)
@@ -414,6 +260,8 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
     folder_exclude = str(addition.get("folder_exclude") or "").strip()
     folder_filter_mode = str(addition.get("folder_filter_mode") or "").strip()
     folder_exclude_mode = str(addition.get("folder_exclude_mode") or "").strip()
+    folder_priority = str(addition.get("folder_priority") or "").strip()
+    folder_priority_mode = str(addition.get("folder_priority_mode") or "").strip()
     dir_min_date = str(addition.get("dir_min_date") or "").strip()
     file_min_date = str(addition.get("file_min_date") or "").strip()
     file_filter_str = str(addition.get("file_filter") or "").strip()
@@ -434,12 +282,16 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
         except Exception:
             return {"checked": False, "updated": False, "reason": "rename_rule_invalid"}
 
+
     tmdb_context = _load_tmdb_context(db, task)
 
     old_shareurl = str(getattr(task, "shareurl", "") or "").strip()
     if not old_shareurl:
         return {"checked": False, "updated": False, "reason": "shareurl_empty"}
 
+    filter_words_count = len([w for w in str(addition.get("filter_words") or "").split("|") if w.strip()])
+    file_filter_count = len([w for w in str(addition.get("file_filter") or "").split("|") if w.strip()])
+    logger.info("  过滤规则：关键词=%d 文件筛选=%d 文件夹筛选=%s 文件夹排除=%s 文件夹优先=%s 时间=%s 大小=%s", filter_words_count, file_filter_count, folder_filter or "无", folder_exclude or "无", folder_priority or "无", file_min_date or "无", addition.get("min_size") or "无")
     current_season: int | None = None
     current_episode: int | None = None
 
@@ -460,9 +312,11 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
         from app.services.drama_update_progress import resolve_tmdb_latest_aired_episode
         tmdb_detail = tmdb_context.detail if isinstance(tmdb_context.detail, dict) else {}
         tmdb_latest_season, tmdb_latest_episode, _ = resolve_tmdb_latest_aired_episode(tmdb_detail)
+        logger.info("自动换链：当前已转存进度=第%d集，TMDB最新=第%d集", current_episode or 0, tmdb_latest_episode or 0)
         if tmdb_latest_season is not None and tmdb_latest_episode is not None:
             if current_season is not None and current_episode is not None:
                 if (current_season or 0, current_episode) >= (tmdb_latest_season or 1, tmdb_latest_episode):
+                    logger.info("自动换链：已到最新，跳过")
                     return {
                         "checked": True,
                         "updated": False,
@@ -470,6 +324,7 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                         "current_season": current_season,
                         "current_episode": current_episode,
                     }
+
 
     # 搜索关键词：有TMDB用TMDB名称，没有用任务名称
     search_names = tmdb_context.names if tmdb_context is not None else [str(getattr(task, "taskname", "") or "").strip()]
@@ -584,22 +439,30 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
         except Exception:
             return 0
 
-    valid_candidates: list[tuple[dict[str, Any], int, int, float]] = []
+    valid_candidates: list[tuple[dict[str, Any], int, float]] = []
     for suggestion in preview_suggestions:
         shareurl = str(suggestion.get("shareurl") or "").strip()
         if not shareurl or shareurl == old_shareurl:
             continue
         if tried_shareurls and shareurl in tried_shareurls:
             continue
-        title = str(suggestion.get("taskname") or suggestion.get("content") or "").strip()
-        title_season, title_episode = _resolve_title_progress(title, tv_seasons=tv_seasons)
         author = str(suggestion.get("share_author_name") or "").strip()
         is_preferred = 1 if author in preferred_set else 0
         pub_ts = _parse_dt(str(suggestion.get("datetime") or ""))
-        valid_candidates.append((suggestion, int(title_season or current_season or 0), int(title_episode or 0), is_preferred, pub_ts))
+        valid_candidates.append((suggestion, is_preferred, pub_ts))
 
     # 排序：优选优先 > 发布时间从新到旧
-    valid_candidates.sort(key=lambda x: (x[3], x[4]), reverse=True)
+    valid_candidates.sort(key=lambda x: (x[1], x[2]), reverse=True)
+    logger.info("自动换链：找到%d个候选", len(valid_candidates))
+    for i, (s, pref, ts) in enumerate(valid_candidates):
+        author_name = str(s.get("share_author_name") or "").strip()
+        url = str(s.get("shareurl") or "").strip()[:50]
+        title = str(s.get("taskname") or s.get("content") or "").strip()[:30]
+
+    for i, (s, pref, ts) in enumerate(valid_candidates):
+        author_name = str(s.get("share_author_name") or "").strip()
+        title = str(s.get("taskname") or s.get("content") or "").strip()[:30]
+        logger.info("  排序第%d 优选=%d 作者=%s", i+1, pref, author_name)
 
     # 依次尝试每个候选，获取文件列表检查连贯性
     from app.services.share_preview_batch import fetch_share_file_list_grouped
@@ -610,18 +473,31 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
     best_episode: int | None = None
     best_pdir_fid: str | None = None
     best_taskname: str = ""
+    best_ep_to_name: dict[int, str] = {}
 
-    # 备用候选池：连贯性检查失败但有缺口后面集数的链接
-    fallback_candidates: list[dict[str, Any]] = []
+    # 备用候选池：跨轮保留，连贯性检查失败但有缺口后面集数的链接
+    if fallback_candidates is None:
+        fallback_candidates = []
     current_ep_int = int(current_episode) if current_episode is not None else 0
 
-    for suggestion, candidate_season, candidate_episode, _, _ in valid_candidates:
+    # 清理备选池：移除当前进度已超过的候选
+    if fallback_candidates and current_ep_int > 0:
+        before_count = len(fallback_candidates)
+        fallback_candidates[:] = [fb for fb in fallback_candidates if int(fb.get("max_ep") or 0) > current_ep_int]
+        removed_count = before_count - len(fallback_candidates)
+        if removed_count > 0:
+            logger.info("  备选池：移除%d个已过期候选，剩余%d个", removed_count, len(fallback_candidates))
+
+    for i, (suggestion, _, _) in enumerate(valid_candidates):
         shareurl = str(suggestion.get("shareurl") or "").strip()
+        title = str(suggestion.get("taskname") or suggestion.get("content") or "").strip()[:30]
         if tried_shareurls is not None and shareurl in tried_shareurls:
+            logger.info("  候选%d：跳过已尝试", i+1)
             continue
         # 按子目录分组获取文件列表
-        groups = fetch_share_file_list_grouped(db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode)
+        groups = fetch_share_file_list_grouped(db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode, folder_priority=folder_priority, folder_priority_mode=folder_priority_mode)
         if not groups:
+            logger.info("  候选%d：跳过无法获取", i+1)
             preview_stats["skip_unpreviewable"] = int(preview_stats.get("skip_unpreviewable") or 0) + 1
             if tried_shareurls is not None:
                 tried_shareurls.add(shareurl)
@@ -634,7 +510,15 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
         candidate_later_max_ep: int = 0
         candidate_later_fid: str | None = None
         candidate_later_ts: int = 0
-        for file_list, fid, dir_updated_at in groups:
+        candidate_later_ep_to_name: dict[int, str] = {}
+        # 优先级关键词
+        folder_priority_keywords = [w.strip().lower() for w in folder_priority.split("|") if w.strip()] if folder_priority else []
+        folder_priority_is_any = str(folder_priority_mode or "all").strip().lower() == "any"
+        # 优先级候选
+        priority_candidate_best_fid: str | None = None
+        priority_candidate_max_ep: int = 0
+        priority_candidate_best_ts: int = 0
+        for file_list, fid, dir_updated_at, dir_name in groups:
             if not file_list:
                 continue
             # 目录时间过滤
@@ -662,6 +546,15 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                 file_min_date=file_min_date,
                 mr=mr,
             )
+            logger.info("  候选%d：文件夹：%s 文件数=%d %s", i+1, dir_name or fid[:8], len(file_list), "连贯 E%s-E%s" % (min(consecutive_episodes), max(consecutive_episodes)) if is_consecutive and consecutive_episodes else "不连贯")
+            # 找最高集数对应的文件名
+            ep_to_name: dict[int, str] = {}
+            for f in file_list:
+                fn = str(f.get("file_name") or f.get("name") or "").strip()
+                if fn:
+                    _, ep = _extract_episode_from_file(fn, mr=mr)
+                    if ep is not None:
+                        ep_to_name[ep] = fn
             group_ts = 0
             for f in file_list:
                 try:
@@ -672,7 +565,22 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                     pass
             if is_consecutive and consecutive_episodes:
                 ep = max(consecutive_episodes)
-                if ep > candidate_max_ep or (ep == candidate_max_ep and group_ts > candidate_best_ts):
+                # 检查是否匹配优先级关键词
+                is_priority = False
+                if folder_priority_keywords and dir_name:
+                    name_lower = dir_name.lower()
+                    if folder_priority_is_any:
+                        is_priority = any(kw in name_lower for kw in folder_priority_keywords)
+                    else:
+                        is_priority = all(kw in name_lower for kw in folder_priority_keywords)
+                if is_priority:
+                    # 优先级候选：优先选择
+                    if ep > priority_candidate_max_ep or (ep == priority_candidate_max_ep and group_ts > priority_candidate_best_ts):
+                        priority_candidate_max_ep = ep
+                        priority_candidate_best_ts = group_ts
+                        priority_candidate_best_fid = fid
+                        logger.info("  候选%d：文件夹：%s 匹配优先级关键词，集=%d", i+1, dir_name or fid[:8], ep)
+                elif ep > candidate_max_ep or (ep == candidate_max_ep and group_ts > candidate_best_ts):
                     candidate_max_ep = ep
                     candidate_best_ts = group_ts
                     candidate_best_fid = fid
@@ -682,28 +590,59 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                     candidate_later_max_ep = max_ep
                     candidate_later_fid = fid
                     candidate_later_ts = group_ts
+                    candidate_later_ep_to_name = ep_to_name
                     candidate_has_later = True
+            else:
+                pass
 
-        if candidate_best_fid is not None:
+        # 优先使用优先级候选
+        if priority_candidate_best_fid is not None:
+            # 优先级候选通过，标记已尝试，立即使用
+            if tried_shareurls is not None:
+                tried_shareurls.add(shareurl)
+            best_shareurl = shareurl
+            best_pdir_fid = priority_candidate_best_fid
+            best_taskname = str(suggestion.get("taskname") or suggestion.get("content") or "").strip()
+            best_file_name = ep_to_name.get(priority_candidate_max_ep, "")
+            if best_file_name:
+                best_season, best_episode = _extract_episode_from_file(best_file_name, mr=mr)
+            else:
+                best_season, best_episode = None, None
+            logger.info("  候选%d：优先级候选通过，集=%s", i+1, best_episode)
+            break
+        elif candidate_best_fid is not None:
             # 连贯性检查通过，标记已尝试，立即使用
             if tried_shareurls is not None:
                 tried_shareurls.add(shareurl)
             best_shareurl = shareurl
-            best_season = candidate_season
-            best_episode = candidate_episode
             best_pdir_fid = candidate_best_fid
             best_taskname = str(suggestion.get("taskname") or suggestion.get("content") or "").strip()
+            # 用最高集数对应的文件名提取季和集
+            best_file_name = ep_to_name.get(candidate_max_ep, "")
+            if best_file_name:
+                best_season, best_episode = _extract_episode_from_file(best_file_name, mr=mr)
+            else:
+                best_season, best_episode = None, None
+            logger.info("  候选%d：候选通过，集=%s", i+1, best_episode)
             break
         elif candidate_has_later:
             # 备用候选池：不标记已尝试
+            later_file_name = candidate_later_ep_to_name.get(candidate_later_max_ep, "")
+            if later_file_name:
+                later_season, later_episode = _extract_episode_from_file(later_file_name, mr=mr)
+            else:
+                later_season, later_episode = None, None
             fallback_candidates.append({
                 "suggestion": suggestion,
-                "season": candidate_season,
-                "episode": candidate_episode,
+                "season": later_season,
+                "episode": later_episode,
                 "fid": candidate_later_fid,
                 "max_ep": candidate_later_max_ep,
                 "ts": candidate_later_ts,
             })
+            if tried_shareurls is not None:
+                tried_shareurls.add(shareurl)
+            logger.info("  候选%d：进入备选池 集=%s", i+1, later_episode)
         else:
             # 没有用处的链接，标记已尝试
             if tried_shareurls is not None:
@@ -712,19 +651,19 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
 
     # 主候选池没有找到，尝试备用候选池（同样的连贯性检查逻辑）
     if best_shareurl is None and fallback_candidates:
-        fallback_candidates.sort(key=lambda x: (x["max_ep"], x["ts"]), reverse=True)
+        logger.info("  主候选未通过，尝试备选池，备选数=%d", len(fallback_candidates))
+        fallback_candidates.sort(key=lambda x: (x["max_ep"], x["ts"]), reverse=False)
         for fb in fallback_candidates:
             fb_url = str(fb["suggestion"].get("shareurl") or "").strip()
-            if tried_shareurls is not None and fb_url in tried_shareurls:
-                continue
+            # 备选池候选不检查已尝试，因为进入备选池时已标记
             # 重新获取文件列表，走同样的连贯性检查
-            fb_groups = fetch_share_file_list_grouped(db, fb_url, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode)
+            fb_groups = fetch_share_file_list_grouped(db, fb_url, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode, folder_priority=folder_priority, folder_priority_mode=folder_priority_mode)
             if not fb_groups:
                 continue
             fb_best_fid: str | None = None
             fb_max_ep: int = 0
             fb_best_ts: int = 0
-            for file_list, fid, dir_updated_at in fb_groups:
+            for file_list, fid, dir_updated_at, dir_name in fb_groups:
                 if not file_list:
                     continue
                 if dir_min_date and dir_updated_at is not None:
@@ -750,6 +689,15 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                     file_min_date=file_min_date,
                     mr=mr,
                 )
+                logger.info("  备选池：文件夹：%s 文件数=%d %s", dir_name or fid[:8], len(file_list), "连贯 E%s-E%s" % (min(consecutive_episodes), max(consecutive_episodes)) if is_consecutive and consecutive_episodes else "不连贯")
+                # 找最高集数对应的文件名
+                fb_ep_to_name: dict[int, str] = {}
+                for f in file_list:
+                    fn = str(f.get("file_name") or f.get("name") or "").strip()
+                    if fn:
+                        _, ep = _extract_episode_from_file(fn, mr=mr)
+                        if ep is not None:
+                            fb_ep_to_name[ep] = fn
                 group_ts = 0
                 for f in file_list:
                     try:
@@ -765,21 +713,28 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
                         fb_best_ts = group_ts
                         fb_best_fid = fid
             if fb_best_fid is not None:
-                # 备用候选连贯性检查通过，标记已尝试，使用
+                # 备用候选连贯性检查通过，标记已尝试，从备选池移除，使用
                 if tried_shareurls is not None:
                     tried_shareurls.add(fb_url)
+                fallback_candidates.remove(fb)
                 best_shareurl = fb_url
-                best_season = fb["season"]
-                best_episode = fb["episode"]
                 best_pdir_fid = fb_best_fid
                 best_taskname = str(fb["suggestion"].get("taskname") or fb["suggestion"].get("content") or "").strip()
                 candidate_max_ep = fb_max_ep
+                # 用最高集数对应的文件名提取季和集
+                fb_best_file_name = fb_ep_to_name.get(fb_max_ep, "")
+                if fb_best_file_name:
+                    best_season, best_episode = _extract_episode_from_file(fb_best_file_name, mr=mr)
+                else:
+                    best_season, best_episode = None, None
+                logger.info("  备选池命中 集=%s", best_episode)
                 break
             else:
                 # 备用候选也没通过，不标记已尝试，下次还能用
-                pass
+                logger.info("  备选池未通过")
 
     if best_shareurl is None:
+        logger.info("自动换链：未找到更好链接")
         return {
             "checked": True,
             "updated": False,
@@ -795,6 +750,7 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
         str(best_pdir_fid or ""),
     )
     if not new_shareurl or new_shareurl == old_shareurl:
+        logger.info("自动换链：新旧链接相同")
         return {
             "checked": True,
             "updated": False,
@@ -807,6 +763,7 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
     task.shareurl = new_shareurl
     db.flush()
 
+    logger.info("自动换链：换链成功 集=%s", best_episode)
     return {
         "checked": True,
         "updated": True,

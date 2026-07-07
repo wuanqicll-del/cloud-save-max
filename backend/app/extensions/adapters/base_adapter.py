@@ -357,16 +357,10 @@ class BaseCloudDriveAdapter(ABC):
         """
         # 通用实现，子类可重写
         import re
-        from datetime import datetime
 
         dir_paths = [
             re.sub(r"/{2,}", "/", f"/{item['savepath']}")
             for item in tasklist
-            if not item.get("enddate")
-            or (
-                datetime.now().date()
-                <= datetime.strptime(item["enddate"], "%Y-%m-%d").date()
-            )
         ]
         if not dir_paths:
             return False

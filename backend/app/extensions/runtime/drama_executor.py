@@ -4,13 +4,10 @@ import inspect
 import logging
 import re
 import os
-import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Callable, Iterable, TypeVar
-from zoneinfo import ZoneInfo
 
-from natsort import natsorted
 from treelib import Tree
 
 from app.core.errors import bad_request
@@ -67,15 +64,6 @@ def _validate_code_status(action: str, resp: Any) -> RetryResult:
             error_message=f"{action} code={code} message={resp.get('message') or ''} resp={summarize_payload(resp)}",
         )
     return RetryResult(value=resp, ok=True)
-
-
-def _parse_enddate(value: str | None) -> date | None:
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value, "%Y-%m-%d").date()
-    except ValueError:
-        return None
 
 
 def _normalize_name(name: str, ignore_extension: bool) -> str:
@@ -415,57 +403,6 @@ class DramaTaskExecutor:
             self.transfer_count += len(saved_fids)
         return saved_fids
 
-    def _sync_share_dir(
-        self,
-        *,
-        pwd_id: str,
-        stoken: str,
-        share_dir_fid: str,
-        share_dir_name: str,
-        dest_dir_fid: str,
-        dest_dir_name: str,
-        ignore_extension: bool,
-        tree: Tree,
-        parent_node: str,
-        depth: int,
-    ) -> None:
-        if depth > 3:
-            return
-        share_items = self._fetch_share_items(pwd_id=pwd_id, stoken=stoken, pdir_fid=share_dir_fid)
-        dest_dir_map = self._list_dest_dir_map(dest_dir_fid)
-        dest_file_names = self._list_dest_names(dest_dir_fid, ignore_extension)
-
-        for raw in natsorted(share_items, key=lambda x: _get_name(x)):
-            name = _get_name(raw)
-            fid = _get_fid(raw)
-            if not name or not fid:
-                continue
-            if _is_dir(raw):
-                existing_dest_fid = dest_dir_map.get(name)
-                if existing_dest_fid:
-                    node_id = f"dir-{dest_dir_name}-{fid}"
-                    tree.create_node(f"📁{name}", node_id, parent=parent_node)
-                    self._sync_share_dir(
-                        pwd_id=pwd_id,
-                        stoken=stoken,
-                        share_dir_fid=fid,
-                        share_dir_name=name,
-                        dest_dir_fid=existing_dest_fid,
-                        dest_dir_name=name,
-                        ignore_extension=ignore_extension,
-                        tree=tree,
-                        parent_node=node_id,
-                        depth=depth + 1,
-                    )
-                    continue
-                self._save_items(pwd_id=pwd_id, stoken=stoken, to_pdir_fid=dest_dir_fid, items=[raw])
-                tree.create_node(f"📁{name}", f"dir-new-{dest_dir_name}-{fid}", parent=parent_node)
-                continue
-            if _normalize_name(name, ignore_extension) in dest_file_names:
-                continue
-            self._save_items(pwd_id=pwd_id, stoken=stoken, to_pdir_fid=dest_dir_fid, items=[raw])
-            tree.create_node(f"{name} -> {name}", f"file-{dest_dir_name}-{fid}", parent=parent_node)
-
     def _iter_files(self, items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         for raw in items:
@@ -483,19 +420,11 @@ class DramaTaskExecutor:
         pattern = str(self.task_data.get("pattern") or "")
         replace = str(self.task_data.get("replace") or "")
         ignore_extension = bool(self.task_data.get("ignore_extension"))
-        update_subdir = str(self.task_data.get("update_subdir") or "").strip()
-        startfid = str(self.task_data.get("startfid") or "").strip()
-        try:
-            start_index = int(self.task_data.get("sort_index") or 1)
-        except (TypeError, ValueError):
-            start_index = 1
 
         mr = MagicRename(magic_regex=(self.task_data.get("magic_regex") if isinstance(self.task_data.get("magic_regex"), dict) else None))
         mr.set_taskname(taskname)
         pattern, replace = mr.magic_regex_conv(pattern, replace)
-        compiled_search = re.compile(pattern) if pattern else None
-        compiled_subdir = re.compile(update_subdir) if update_subdir else None
-        disable_guessit_fallback = bool(self.task_data.get("disable_guessit_tmdb_fallback_rename") or False)
+        compiled_search = re.compile(pattern, re.IGNORECASE) if pattern else None
         tmdb_series_title = str(self.task_data.get("tmdb_series_title") or "").strip() or None
         tmdb_tv_seasons = self.task_data.get("tmdb_tv_seasons") if isinstance(self.task_data.get("tmdb_tv_seasons"), list) else None
         tmdb_year = int(self.task_data.get("tmdb_year")) if isinstance(self.task_data.get("tmdb_year"), int) else None
@@ -507,26 +436,11 @@ class DramaTaskExecutor:
             except Exception:
                 return None
 
-        start_ts = None
-        fid_keep = None
-        if startfid:
-            start_item = next((f for f in share_files if str(_get_fid(f)).strip() == startfid), None)
-            if start_item:
-                start_ts = _to_ts(_get_updated_at(start_item))
-                if start_ts is None:
-                    sorted_list = sorted(share_files, key=lambda x: _to_ts(_get_updated_at(x)) or 0, reverse=True)
-                    kept: list[str] = []
-                    for f in sorted_list:
-                        fid = str(_get_fid(f)).strip()
-                        if fid == startfid:
-                            break
-                        if fid:
-                            kept.append(fid)
-                    fid_keep = set(kept)
-
         dest_filename_list = []
         dest_episode_set: set[tuple[int, int]] = set()
-        from app.services.drama_share_autoupdate import _resolve_title_progress
+        from app.services.drama_share_autoupdate import _extract_episode_from_file
+        mr._resolved_pattern = pattern
+        mr._resolved_replace = replace
         for raw in dest_file_list:
             if _is_dir(raw):
                 continue
@@ -534,7 +448,7 @@ class DramaTaskExecutor:
             if name:
                 dest_filename_list.append(name)
                 try:
-                    s, e = _resolve_title_progress(name, tv_seasons=tmdb_tv_seasons)
+                    s, e = _extract_episode_from_file(name, mr=mr)
                     if s is not None and e is not None:
                         dest_episode_set.add((int(s), int(e)))
                 except Exception:
@@ -548,48 +462,14 @@ class DramaTaskExecutor:
             updated_at = _get_updated_at(raw)
             if not fid or not origin_name:
                 continue
-            if startfid:
-                if start_ts is not None:
-                    if (_to_ts(updated_at) or 0) <= start_ts:
-                        continue
-                elif fid_keep is not None and fid not in fid_keep:
-                    continue
-            search_re = compiled_subdir if (compiled_subdir and _is_dir(raw)) else compiled_search
-            if search_re and not search_re.search(origin_name):
-                continue
-            file_name_re = origin_name
-            if not _is_dir(raw):
-                if (not disable_guessit_fallback) and (not pattern.strip()) and (not replace.strip()) and bool(tmdb_series_title):
-                    try:
-                        from app.extensions.runtime.guessit_fallback import guessit_media_target
-
-                        target = guessit_media_target(
-                                origin_name,
-                                media_type=tmdb_media_type,
-                                tmdb_title=tmdb_series_title,
-                                tmdb_year=tmdb_year,
-                                tv_seasons=tmdb_tv_seasons,
-                                tv_rename_template=str(self.task_data.get("guessit_tmdb_tv_rename_template") or "").strip() or None,
-                                movie_rename_template=str(self.task_data.get("guessit_tmdb_movie_rename_template") or "").strip() or None,
-                                trace_tag="drama_plan",
-                            )
-                        if not target:
-                            continue
-                        file_name_re = target
-                    except Exception:
-                        continue
-                else:
-                    file_name_re = mr.sub(pattern, replace, origin_name)
-            if mr.is_exists(file_name_re, dest_filename_list, ignore_extension and not _is_dir(raw)):
-                continue
-            # 按集数去重：目标目录已有同集数文件则跳过（文件名不同但内容相同的情况，如不同编码）
             if not _is_dir(raw) and dest_episode_set:
                 try:
-                    s, e = _resolve_title_progress(origin_name, tv_seasons=tmdb_tv_seasons)
+                    s, e = _extract_episode_from_file(origin_name, mr=mr)
                     if s is not None and e is not None and (int(s), int(e)) in dest_episode_set:
                         continue
                 except Exception:
                     pass
+            file_name_re = mr.sub(pattern, replace, origin_name) if (pattern or replace) else origin_name
             candidates.append(
                 {
                     "fid": fid,
@@ -669,11 +549,6 @@ class DramaTaskExecutor:
                 removed = before - len(candidates)
                 if removed:
                     self._line(f"文件筛选：移除 {removed} 个不匹配的文件")
-
-        if re.search(r"\{I+\}", replace or ""):
-            dest_for_index = [{"file_name": _get_name(raw), "dir": _is_dir(raw)} for raw in dest_file_list if _get_name(raw)]
-            mr.set_dir_file_list(dest_for_index, replace, start_index=start_index)
-            mr.sort_file_list(candidates, start_index=start_index)
 
         plan: list[DramaPlanItem] = []
         for f in candidates:
@@ -792,14 +667,10 @@ class DramaTaskExecutor:
         allow_once = bool(extra.get("allow_once"))
         runweek_mode = str(extra.get("runweek_mode") or "manual").strip().lower()
         runweek = extra.get("runweek") or []
-        enddate = _parse_enddate(self.task_data.get("enddate"))
         now = datetime.now()
         self._set_stage("validate_schedule")
         self._section("验证调度条件")
         self._line(f"执行时间: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-        if enddate and now.date() > enddate:
-            self._line(f"跳过: 已超过截止日期 {enddate.isoformat()}")
-            raise SkipTask("已超过截止日期")
         if allow_once:
             self._line("运行一次: 忽略按星期运行限制")
         elif runweek_mode == "auto":
@@ -904,10 +775,6 @@ class DramaTaskExecutor:
         tree = Tree()
         tree.create_node(str(self.task_data.get("taskname") or ""), "root")
 
-        update_subdir = (self.task_data.get("update_subdir") or "").strip()
-        mode = str((extra.get("update_subdir_resave_mode") or "none")).strip()
-        compiled_subdir = re.compile(update_subdir) if update_subdir else None
-
         root_files = [raw for raw in share_items if not _is_dir(raw)]
         self._set_stage("plan_transfer")
         self._section("生成转存计划")
@@ -932,6 +799,8 @@ class DramaTaskExecutor:
             folder_exclude = str(addition.get("folder_exclude") or "").strip()
             folder_filter_mode = str(addition.get("folder_filter_mode") or "").strip()
             folder_exclude_mode = str(addition.get("folder_exclude_mode") or "").strip()
+            folder_priority = str(addition.get("folder_priority") or "").strip()
+            folder_priority_mode = str(addition.get("folder_priority_mode") or "").strip()
             shareurl = str(self.task_data.get("shareurl") or "").strip()
             account_name = str(getattr(self.adapter, "account_name", "") or "").strip()
             min_size_str = str(addition.get("min_size") or "").strip()
@@ -945,7 +814,8 @@ class DramaTaskExecutor:
             _file_min_date = str(addition.get("file_min_date") or "").strip()
             import logging as _dbg_log
             _dbg = _dbg_log.getLogger(__name__)
-            tmdb_tv_ss = self.task_data.get("tmdb_tv_seasons") if isinstance(self.task_data.get("tmdb_tv_seasons"), list) else None
+            _dbg.info("开始执行任务：%s", str(self.task_data.get("taskname") or ""))
+            _dbg.info("  过滤规则：关键词=%d 文件筛选=%d 文件夹筛选=%s 文件夹排除=%s 文件夹优先=%s 时间=%s 大小=%s", len(_filter_words), len(_file_filter_words), folder_filter or "无", folder_exclude or "无", folder_priority or "无", _file_min_date or "无", _min_size or "无")
             mr_ep = MagicRename(magic_regex=(self.task_data.get("magic_regex") if isinstance(self.task_data.get("magic_regex"), dict) else None))
             mr_ep.set_taskname(str(self.task_data.get("taskname") or ""))
             _pat = str(self.task_data.get("pattern") or "")
@@ -960,20 +830,26 @@ class DramaTaskExecutor:
             else:
                 mr_ep = None
             with SessionLocal() as _ep_db:
-                groups = fetch_share_file_list_grouped(_ep_db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode)
+                groups = fetch_share_file_list_grouped(_ep_db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode, folder_priority=folder_priority, folder_priority_mode=folder_priority_mode)
             # 没有重命名规则时跳过连贯性检查
             if mr_ep is None:
                 self._line("未设置重命名规则，跳过连贯性检查")
             else:
+                _dbg = __import__("logging").getLogger(__name__)
+                _dbg.info("连贯性检查：当前已转存进度=%d", current_ep)
+                _dbg.info("  过滤规则：关键词=%d 文件筛选=%d 文件夹筛选=%s 文件夹排除=%s 时间=%s 大小=%s", len(_filter_words), len(_file_filter_words), folder_filter or "无", folder_exclude or "无", _file_min_date or "无", _min_size or "无")
                 allowed_eps: set[int] = set()
-                for file_list, fid, dir_ts in groups:
+                for file_list, fid, dir_ts, dir_name in groups:
                     if not file_list:
                         continue
                     is_con, con_eps, max_ep = check_consecutive_episodes(file_list, current_episode=current_ep, min_size=_min_size, filter_words=_filter_words, file_filter_words=_file_filter_words, file_filter_is_any=_file_filter_is_any, file_min_date=_file_min_date, mr=mr_ep)
-                    _dbg.info("[episode_filter] group fid=%s files=%d consecutive=%s episodes=%s max_ep=%d", fid, len(file_list), is_con, con_eps, max_ep)
+                    _dbg.info("  文件夹：%s 文件数=%d %s", dir_name or fid[:8], len(file_list), "连贯" if is_con else "不连贯")
                     if con_eps:
                         allowed_eps.update(con_eps)
-                        _dbg.info("[episode_filter] allowed episodes=%s", con_eps)
+                if allowed_eps:
+                    _dbg.info("连贯性检查：结果 连贯集数=E%s-E%s", min(allowed_eps), max(allowed_eps))
+                else:
+                    _dbg.info("连贯性检查：结果 无连贯集数")
                 if allowed_eps:
                     before = len(plan)
                     plan_filtered = []
@@ -982,7 +858,7 @@ class DramaTaskExecutor:
                         if ep is not None and ep in allowed_eps:
                             plan_filtered.append(p)
                         else:
-                            _dbg.info("[episode_filter] removed file=%s ep=%s", p.target_name or p.origin_name, ep)
+                            pass
                     plan = plan_filtered
                     removed = before - len(plan)
                     if removed:
@@ -1009,74 +885,6 @@ class DramaTaskExecutor:
                     "is_dir": False,
                 }
                 tree.create_node(f"{i + 1}. {item.origin_name} -> {item.target_name}", f"item-{i + 1}", parent="root", data=data)
-
-        if compiled_subdir:
-            self._set_stage("subdir_sync")
-            self._section("子目录转存")
-            startfid = str(self.task_data.get("startfid") or "").strip()
-            start_ts = None
-            fid_keep = None
-            if startfid:
-                def _to_ts(v):
-                    try:
-                        return float(v)
-                    except Exception:
-                        return None
-
-                start_item = next((f for f in share_items if str(_get_fid(f)).strip() == startfid), None)
-                if start_item:
-                    start_ts = _to_ts(_get_updated_at(start_item))
-                    if start_ts is None:
-                        sorted_list = sorted(share_items, key=lambda x: _to_ts(_get_updated_at(x)) or 0, reverse=True)
-                        kept: list[str] = []
-                        for f in sorted_list:
-                            fid = str(_get_fid(f)).strip()
-                            if fid == startfid:
-                                break
-                            if fid:
-                                kept.append(fid)
-                        fid_keep = set(kept)
-            for raw in natsorted(share_items, key=lambda x: _get_name(x)):
-                if not _is_dir(raw):
-                    continue
-                name = _get_name(raw)
-                fid = _get_fid(raw)
-                if not name or not fid:
-                    continue
-                if startfid:
-                    if start_ts is not None:
-                        if (_to_ts(_get_updated_at(raw)) or 0) <= start_ts:
-                            continue
-                    elif fid_keep is not None and str(fid).strip() not in fid_keep:
-                        continue
-                if not compiled_subdir.search(name):
-                    continue
-                if mode == "delete_then_resave":
-                    existing_dest_fid = dest_dir_map.get(name)
-                    if existing_dest_fid:
-                        self.adapter.delete([existing_dest_fid])
-                    self._save_items(pwd_id=str(pwd_id), stoken=str(stoken), to_pdir_fid=dest_root_fid, items=[raw])
-                    tree.create_node(f"📁{name}（重存）", f"dir-resave-{fid}", parent="root")
-                    continue
-                existing_dest_fid = dest_dir_map.get(name)
-                if existing_dest_fid:
-                    node_id = f"dir-sync-{fid}"
-                    tree.create_node(f"📁{name}（检查）", node_id, parent="root")
-                    self._sync_share_dir(
-                        pwd_id=str(pwd_id),
-                        stoken=str(stoken),
-                        share_dir_fid=fid,
-                        share_dir_name=name,
-                        dest_dir_fid=existing_dest_fid,
-                        dest_dir_name=name,
-                        ignore_extension=ignore_extension,
-                        tree=tree,
-                        parent_node=node_id,
-                        depth=0,
-                    )
-                    continue
-                self._save_items(pwd_id=str(pwd_id), stoken=str(stoken), to_pdir_fid=dest_root_fid, items=[raw])
-                tree.create_node(f"📁{name}", f"dir-new-{fid}", parent="root")
 
         if tree.size() <= 1:
             tree.create_node("无可转存文件", "empty", parent="root")

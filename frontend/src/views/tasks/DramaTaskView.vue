@@ -326,9 +326,6 @@ function formatTaskSaveError(e: any): string | null {
       tmdb_id: 'TMDB ID',
       tmdb_media_type: 'TMDB 类型',
       account_name: '账号',
-      update_subdir: '更新子目录',
-      startfid: '起始文件',
-      enddate: '截止日期',
     }
     const missing: string[] = []
     const issues: string[] = []
@@ -671,7 +668,7 @@ async function saveScheduler() {
 async function confirmRunAll() {
   if (runAllDialog.running) return
   try {
-    await ElMessageBox.confirm('确认现在手动执行全部“追剧任务”吗？将按当前任务的 runweek/enddate 自动跳过不符合条件的任务。', '手动执行', {
+    await ElMessageBox.confirm('确认现在手动执行全部“追剧任务”吗？将按当前任务的 runweek 自动跳过不符合条件的任务。', '手动执行', {
       type: 'warning',
       confirmButtonText: '执行',
       cancelButtonText: '取消',

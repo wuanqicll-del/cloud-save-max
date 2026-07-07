@@ -13,11 +13,8 @@ class SharePreviewIn(BaseModel):
     taskname: str | None = Field(default=None, max_length=255)
     pattern: str | None = Field(default=None, max_length=255)
     replace: str | None = Field(default=None, max_length=255)
-    sort_index: int | None = None
     savepath: str | None = Field(default=None, max_length=1024)
     ignore_extension: bool | None = None
-    update_subdir: str | None = Field(default=None, max_length=255)
-    startfid: str | None = Field(default=None, max_length=128)
     min_size: str | None = Field(default=None, max_length=32)
     filter_words: str | None = Field(default=None, max_length=1024)
     file_filter: str | None = Field(default=None, max_length=1024)
@@ -28,6 +25,8 @@ class SharePreviewIn(BaseModel):
     folder_exclude: str | None = Field(default=None, max_length=1024)
     folder_filter_mode: str | None = Field(default=None, max_length=8)
     folder_exclude_mode: str | None = Field(default=None, max_length=8)
+    folder_priority: str | None = Field(default=None, max_length=1024)
+    folder_priority_mode: str | None = Field(default=None, max_length=8)
     tmdb_id: int | None = None
     tmdb_media_type: str | None = Field(default=None, max_length=16)
 
@@ -50,6 +49,7 @@ class SharePreviewItemOut(BaseModel):
     filtered_by_file_date: bool | None = None
     filtered_by_folder: str | None = None
     filtered_by_search: bool | None = None
+    priority_match: bool | None = None
     dir: bool | None = None
     include_items: int | None = None
 

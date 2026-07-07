@@ -17,9 +17,10 @@ def builtin_magic_regex() -> dict[str, dict[str, str]]:
 
 def builtin_magic_regex_labels() -> dict[str, str]:
     return {
-        "$TV_MAGIC": "通用视频命名",
-        "$SHOW_MAGIC": "综艺期数命名",
-        "$SHOW_PRO": "综艺带上下集命名",
+        "$TV_MAGIC": "电视剧命名",
+        "$SHOW_PLUS": "综艺单期命名",
+        "$SHOW_PRO": "综艺上下集命名",
+        "$SHOW_SOLO": "综艺上中下集命名",
     }
 
 
@@ -31,10 +32,10 @@ BUILTIN_VARIABLE_LABELS = {
     "{E}": "集数（不补零）",
     "{E0}": "集数（补零到2位）",
     "{E2}": "上下期转集数（1期上=01，1期下=02）",
+    "{E3}": "上中下期转集数（1期上=01，1期中=02，1期下=03）",
     "{PART}": "上下部",
     "{DATE}": "日期",
     "{YEAR}": "年份",
-    "{I}": "序号",
 }
 
 
@@ -57,7 +58,7 @@ def list_rules(db: Session) -> list[dict[str, Any]]:
     db_rules = db.execute(select(MagicRegexRule).order_by(MagicRegexRule.key.asc())).scalars().all()
     db_by_key = {r.key: r for r in db_rules}
 
-    preferred_order = ["$TV_MAGIC", "$SHOW_MAGIC", "$SHOW_PRO"]
+    preferred_order = ["$TV_MAGIC", "$SHOW_PRO"]
     ordered_keys: list[str] = []
     seen: set[str] = set()
     for key in preferred_order:

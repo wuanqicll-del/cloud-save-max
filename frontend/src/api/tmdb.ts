@@ -10,7 +10,6 @@ export async function patchTMDBConfig(payload: {
   api_key?: string | null
   language?: string | null
   poster_language?: string | null
-  disable_guessit_tmdb_fallback_rename?: boolean | null
 }) {
   const response = await http.patch<TMDBConfig>('/tmdb/config', payload)
   return response.data

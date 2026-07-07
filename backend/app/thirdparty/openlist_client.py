@@ -18,7 +18,6 @@ def _truncate(s: str, max_len: int) -> str:
     s = str(s or "")
     if max_len <= 0:
         return ""
-    return s
     if len(s) <= max_len:
         return s
     return f"{s[:max_len]}...(truncated,len={len(s)})"

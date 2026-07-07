@@ -15,9 +15,6 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import inspect, text
 
-from app.extensions.runtime.guessit_fallback import guessit_episode_numbers
-
-
 revision = "20260705_task_savepath_snapshots_saved_latest_progress"
 down_revision = "20260704_tmdb_cache_lookup_index"
 branch_labels = None
@@ -62,38 +59,7 @@ def _pick_tv_seasons(payload_json: str | None) -> list[dict] | None:
 
 
 def _resolve_saved_latest_progress(files_json: str | None, tv_seasons: list[dict] | None) -> tuple[int | None, int | None, str | None]:
-    if not files_json:
-        return None, None, None
-    try:
-        payload = json.loads(files_json)
-    except Exception:
-        return None, None, None
-    if not isinstance(payload, list):
-        return None, None, None
-
-    best_key: tuple[int, int] | None = None
-    best_name: str | None = None
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("file_name") or "").strip()
-        if not name or not _is_video_name(name):
-            continue
-        season, episode = guessit_episode_numbers(name, tv_seasons=tv_seasons)
-        if season is None or episode is None:
-            continue
-        try:
-            key = (int(season), int(episode))
-        except Exception:
-            continue
-        if key[0] <= 0 or key[1] <= 0:
-            continue
-        if best_key is None or key > best_key:
-            best_key = key
-            best_name = name
-    if best_key is None:
-        return None, None, None
-    return int(best_key[0]), int(best_key[1]), best_name
+    return None, None, None
 
 
 def _load_tv_seasons_map(bind, tmdb_ids: list[int]) -> dict[int, list[dict] | None]:

@@ -140,12 +140,8 @@ def create_task(db: Session, **payload) -> Task:
         savepath=payload['savepath'],
         pattern=payload.get('pattern'),
         replace=payload.get('replace'),
-        enddate=payload.get('enddate'),
         ignore_extension=payload.get('ignore_extension', False),
-        sort_index=payload.get('sort_index'),
-        startfid=payload.get('startfid'),
         account_name=payload.get('account_name'),
-        update_subdir=payload.get('update_subdir'),
         tmdb_id=tmdb_id,
         tmdb_media_type=tmdb_media_type,
         enabled=payload.get('enabled', True),
@@ -168,7 +164,7 @@ def update_task(db: Session, task_id: int, **payload) -> Task:
     task = get_task(db, task_id)
     sync_task_uids_present = "sync_task_uids" in payload
     sync_task_uids = payload.get("sync_task_uids") if sync_task_uids_present else None
-    clearable_fields = {'pattern', 'replace', 'enddate', 'sort_index', 'startfid', 'account_name', 'update_subdir', 'tmdb_id', 'tmdb_media_type'}
+    clearable_fields = {'pattern', 'replace', 'account_name', 'tmdb_id', 'tmdb_media_type'}
     for key in [
         'task_type',
         'taskname',
@@ -176,12 +172,8 @@ def update_task(db: Session, task_id: int, **payload) -> Task:
         'savepath',
         'pattern',
         'replace',
-        'enddate',
         'ignore_extension',
-        'sort_index',
-        'startfid',
         'account_name',
-        'update_subdir',
         'tmdb_id',
         'tmdb_media_type',
         'enabled',

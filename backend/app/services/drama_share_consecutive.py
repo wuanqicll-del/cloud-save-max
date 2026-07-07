@@ -1,12 +1,9 @@
 """检查链接文件列表的连贯性，返回从next_episode开始的连贯集数列表"""
 from __future__ import annotations
 
-import logging
 import re
 from datetime import datetime
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 
 _RE_SEASON_EPISODE = re.compile(r"\bS(\d{1,3})E(\d{1,4})\b", re.IGNORECASE)
@@ -87,7 +84,7 @@ def check_consecutive_episodes(
     next_episode = current_episode + 1
     filter_words_lower = [w.strip().lower() for w in (filter_words or []) if w.strip()]
     file_filter_lower = [w.strip().lower() for w in (file_filter_words or []) if w.strip()]
-    
+
     # 收集所有有效视频文件的集数
     valid_episodes: set[int] = set()
     

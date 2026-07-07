@@ -12,15 +12,19 @@ class MagicRename:
     magic_regex: dict[str, dict[str, str]] = {
         "$TV_MAGIC": {
             "pattern": r".*\.(mp4|mkv|mov|m4v|avi|mpeg|ts|zip)$",
-            "replace": r"{TASKNAME}.{SXX}E{E0}.{EXT}",
+            "replace": r"{TASKNAME}-{SXX}E{E0}.{EXT}",
         },
-        "$SHOW_MAGIC": {
-            "pattern": r"^(?!.*纯享)(?!.*加更)(?!.*抢先)(?!.*预告).*?第\d+期.*",
-            "replace": r"{TASKNAME}.{SXX}E{E0}.第{E}期{PART}.{EXT}",
+        "$SHOW_PLUS": {
+            "pattern": r"^(?!.*纯享)(?!.*加更).*?第(\d+)期(?![\s(（]?[上中下]).*?\.(mp4|mkv|zip)",
+            "replace": r"{TASKNAME}-{SXX}E{E0}.{EXT}",
         },
         "$SHOW_PRO": {
             "pattern": r"^(?!.*纯享)(?!.*加更).*?第(\d+)期[\s(（]?[上下].*?\.(mp4|mkv|zip)",
-            "replace": r"{SXX}E{E2}.{EXT}",
+            "replace": r"{TASKNAME}-{SXX}E{E2}.{EXT}",
+        },
+        "$SHOW_SOLO": {
+            "pattern": r"^(?!.*纯享)(?!.*加更).*?第(\d+)期[\s(（]?[上中下].*?\.(mp4|mkv|zip)",
+            "replace": r"{TASKNAME}-{SXX}E{E3}.{EXT}",
         },
     }
 
@@ -61,6 +65,11 @@ class MagicRename:
         ],
         "{E2}": [
             r"(?<=第)\d{1,3}(?=期[\s(（]?[上下])",
+            r"(?<=第)\d{1,3}(?=[期])",
+            r"(?<=[Ee])\d{1,3}",
+        ],
+        "{E3}": [
+            r"(?<=第)\d{1,3}(?=期[\s(（]?[上中下])",
             r"(?<=第)\d{1,3}(?=[期])",
             r"(?<=[Ee])\d{1,3}",
         ],
@@ -132,7 +141,7 @@ class MagicRename:
         cached = self._compiled_cache.get(pattern)
         if cached is not None:
             return cached
-        compiled = re.compile(pattern)
+        compiled = re.compile(pattern, re.IGNORECASE)
         self._compiled_cache[pattern] = compiled
         return compiled
 
@@ -178,10 +187,22 @@ class MagicRename:
                         value = str(int(value)).zfill(2)
                     elif key == "{E2}":
                         ep = int(value)
-                        if re.search(r"第\d+期[\s(（]?下", file_name):
-                            value = str(ep * 2).zfill(2)
+                        if re.search(r"第\d+期[\s(（]?[上下]", file_name):
+                            if re.search(r"第\d+期[\s(（]?下", file_name):
+                                value = str(ep * 2).zfill(2)
+                            else:
+                                value = str(ep * 2 - 1).zfill(2)
                         else:
-                            value = str(ep * 2 - 1).zfill(2)
+                            value = str(ep).zfill(2)
+                    elif key == "{E3}":
+                        ep = int(value)
+                        if re.search(r"第\d+期[\s(（]?[上中下]", file_name):
+                            if re.search(r"第\d+期[\s(（]?下", file_name):
+                                value = str(ep * 3).zfill(2)
+                            elif re.search(r"第\d+期[\s(（]?中", file_name):
+                                value = str(ep * 3 - 1).zfill(2)
+                            else:
+                                value = str(ep * 3 - 2).zfill(2)
                     replace = replace.replace(key, value)
                     matched = True
                     break
@@ -232,7 +253,7 @@ class MagicRename:
         compiled_backref = self._get_compiled(r"\\[0-9]+")
         pattern = compiled_backref.sub("🔣", pattern)
         pattern = f"({re.escape(pattern).replace('🔣', '.*?').replace('🔢', f')({pattern_i})(')})"
-        compiled_dir_pattern = re.compile(pattern)
+        compiled_dir_pattern = re.compile(pattern, re.IGNORECASE)
 
         last_match = compiled_dir_pattern.match(filename_list[-1])
         if last_match:
@@ -290,7 +311,7 @@ class MagicRename:
             magic_i = m.group()
             pattern_i = r"\d" * magic_i.count("I")
             pattern = re.escape(filename).replace(re.escape(magic_i), pattern_i)
-            compiled_exist = re.compile(pattern)
+            compiled_exist = re.compile(pattern, re.IGNORECASE)
             for fn in filename_list:
                 if compiled_exist.match(fn):
                     return fn
