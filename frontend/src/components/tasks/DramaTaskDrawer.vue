@@ -1528,7 +1528,7 @@ async function submit() {
   if (!hasRenameRule.value) {
     try {
       await ElMessageBox.confirm(
-        '不设置重命名规则将关闭连贯性检查和自动换链',
+        '不设置重命名规则将无法显示当前进度且关闭连贯性检查和自动换链',
         '提示',
         {
           confirmButtonText: '确认',

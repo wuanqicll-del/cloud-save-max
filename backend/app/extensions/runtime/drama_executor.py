@@ -462,13 +462,18 @@ class DramaTaskExecutor:
             updated_at = _get_updated_at(raw)
             if not fid or not origin_name:
                 continue
-            if not _is_dir(raw) and dest_episode_set:
-                try:
-                    s, e = _extract_episode_from_file(origin_name, mr=mr)
-                    if s is not None and e is not None and (int(s), int(e)) in dest_episode_set:
-                        continue
-                except Exception:
-                    pass
+            if not _is_dir(raw):
+                # 基于原始文件名去重：文件名已存在则跳过
+                if origin_name in dest_filename_list:
+                    continue
+                # 基于集数去重：重命名后文件名变了但集数相同
+                if dest_episode_set:
+                    try:
+                        s, e = _extract_episode_from_file(origin_name, mr=mr)
+                        if s is not None and e is not None and (int(s), int(e)) in dest_episode_set:
+                            continue
+                    except Exception:
+                        pass
             file_name_re = mr.sub(pattern, replace, origin_name) if (pattern or replace) else origin_name
             candidates.append(
                 {
