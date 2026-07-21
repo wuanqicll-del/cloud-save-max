@@ -54,7 +54,32 @@ function normalizeConfig(payload: Record<string, any>) {
   if ('SMTP_SSL' in data) {
     data.SMTP_SSL = toBool(data.SMTP_SSL)
   }
+  // 通知过滤：数组转文本（用于输入框显示）
+  const excludeKeywords = Array.isArray(data.__exclude_keywords) ? data.__exclude_keywords : []
+  data.__exclude_keywords_text = excludeKeywords.join('|')
+  if (!data.__exclude_mode) data.__exclude_mode = 'any'
+  const filterKeywords = Array.isArray(data.__filter_keywords) ? data.__filter_keywords : []
+  data.__filter_keywords_text = filterKeywords.join('|')
+  if (!data.__filter_mode) data.__filter_mode = 'all'
   return data
+}
+
+function onExcludeKeywordsChange(val: string) {
+  const keywords = String(val || '').split('|').map((k) => k.trim()).filter(Boolean)
+  configData.value.__exclude_keywords = keywords
+}
+
+function onFilterKeywordsChange(val: string) {
+  const keywords = String(val || '').split('|').map((k) => k.trim()).filter(Boolean)
+  configData.value.__filter_keywords = keywords
+}
+
+function toggleExcludeMode() {
+  configData.value.__exclude_mode = configData.value.__exclude_mode === 'all' ? 'any' : 'all'
+}
+
+function toggleFilterMode() {
+  configData.value.__filter_mode = configData.value.__filter_mode === 'any' ? 'all' : 'any'
 }
 
 function channelEnabled(channelId: string) {
@@ -375,9 +400,19 @@ async function saveAll() {
     ElMessage.error('权限不足')
     return
   }
+  // 同步文本到数组
+  onExcludeKeywordsChange(configData.value.__exclude_keywords_text || '')
+  onFilterKeywordsChange(configData.value.__filter_keywords_text || '')
+  // 构建保存数据（去掉 _text 临时字段）
+  const saveData: Record<string, any> = {}
+  for (const [key, value] of Object.entries(configData.value)) {
+    if (!key.endsWith('_text')) {
+      saveData[key] = value
+    }
+  }
   saving.value = true
   try {
-    await updateNotificationConfig({ config: configData.value })
+    await updateNotificationConfig({ config: saveData })
     ElMessage.success('已保存')
     await loadData()
   } catch (e: any) {
@@ -458,7 +493,17 @@ async function handleSaveChannel(payload: { channel_id: string; enabled: boolean
     for (const [key, value] of Object.entries(payload.config_patch || {})) {
       configData.value[key] = value
     }
-    await updateNotificationConfig({ config: configData.value })
+    // 同步文本到数组
+    onExcludeKeywordsChange(configData.value.__exclude_keywords_text || '')
+    onFilterKeywordsChange(configData.value.__filter_keywords_text || '')
+    // 构建保存数据（去掉 _text 临时字段）
+    const saveData: Record<string, any> = {}
+    for (const [key, value] of Object.entries(configData.value)) {
+      if (!key.endsWith('_text')) {
+        saveData[key] = value
+      }
+    }
+    await updateNotificationConfig({ config: saveData })
     ElMessage.success('已保存')
     channelDrawerVisible.value = false
     await loadData()
@@ -505,6 +550,50 @@ onMounted(loadData)
         <div class="metric-tile__label">最近失败</div>
         <div class="metric-tile__value">{{ summary.last_failed }}</div>
         <div class="metric-tile__hint">基于页面内测试结果</div>
+      </div>
+    </section>
+
+    <section class="glass-panel notify-filter-card">
+      <div class="notify-filter-card__header">
+        <h3>通知过滤</h3>
+        <div class="notify-filter-card__hint">基于通知标题和内容的关键词过滤，所有渠道统一生效</div>
+      </div>
+      <div class="notify-filter-card__body">
+        <el-form label-position="top">
+          <el-form-item label="关键词排除">
+            <el-input
+              v-model="configData.__exclude_keywords_text"
+              placeholder="多个用 | 分隔，如：链接失效|已被取消"
+              :disabled="!canWrite"
+              @input="onExcludeKeywordsChange"
+            >
+              <template #append>
+                <el-button
+                  @click="toggleExcludeMode"
+                >{{ (configData.__exclude_mode === 'all') ? '包含所有' : '包含任意' }}</el-button>
+              </template>
+            </el-input>
+            <div class="drawer-form__hint">通知内容{{ configData.__exclude_mode === 'all' ? '同时包含所有关键词' : '包含任意一个关键词' }}时不发送</div>
+          </el-form-item>
+          <el-form-item label="关键词包含">
+            <el-input
+              v-model="configData.__filter_keywords_text"
+              placeholder="多个用 | 分隔，如：转存成功|新增"
+              :disabled="!canWrite"
+              @input="onFilterKeywordsChange"
+            >
+              <template #append>
+                <el-button
+                  @click="toggleFilterMode"
+                >{{ (configData.__filter_mode === 'any') ? '包含任意' : '包含所有' }}</el-button>
+              </template>
+            </el-input>
+            <div class="drawer-form__hint">只有通知内容{{ configData.__filter_mode === 'any' ? '包含任意一个关键词' : '同时包含所有关键词' }}时才发送，留空则不过滤</div>
+          </el-form-item>
+        </el-form>
+        <div class="notify-filter-card__actions">
+          <el-button type="primary" :loading="saving" :disabled="!canWrite" @click="saveAll">保存</el-button>
+        </div>
       </div>
     </section>
 
@@ -605,6 +694,38 @@ onMounted(loadData)
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 16px;
+}
+
+.notify-filter-card {
+  padding: 22px;
+  margin-bottom: 16px;
+}
+
+.notify-filter-card__header {
+  margin-bottom: 16px;
+}
+
+.notify-filter-card__header h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.notify-filter-card__hint {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
+.notify-filter-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notify-filter-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 
 .global-card {
