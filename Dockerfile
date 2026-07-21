@@ -19,8 +19,8 @@ COPY backend/ /app/backend/
 
 # ---------- runtime (nginx + uvicorn) ----------
 FROM python:3.13-alpine
-ARG BUILD_SHA=c3503cd
-ARG BUILD_TAG=v26.7.17
+ARG BUILD_SHA=c4937b4
+ARG BUILD_TAG=v26.7.21
 ENV BUILD_SHA=$BUILD_SHA \
     BUILD_TAG=$BUILD_TAG \
     TZ=Asia/Shanghai \
