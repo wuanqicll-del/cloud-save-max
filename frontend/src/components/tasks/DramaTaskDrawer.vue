@@ -81,7 +81,7 @@ const state = reactive({
   taskname: '',
   shareurl: '',
   savepath: '',
-  account_choice: '__AUTO__' as string,
+  account_choice: '' as string,
   auto_update_shareurl: true,
   enabled: true,
   sync_task_uids: [] as string[],
@@ -212,7 +212,7 @@ const hasRenameRule = computed(() => {
 const showAutoUpdateToggle = computed(() => true)
 
 const unavailableSelectedAccount = computed(() => {
-  if (state.account_choice === '__AUTO__') return null
+  if (!state.account_choice) return null
   const name = String(state.account_choice || '').trim()
   if (!name) return null
   if (activeAccounts.value.some((item) => item.name === name)) return null
@@ -668,6 +668,11 @@ async function searchSuggestions(deep: 0 | 1) {
   if (deep === 0 && !taskSuggestions.focused) return
   const q = sanitizeSuggestionQuery(state.taskname)
   if (q.length < 2) return
+  // 深度搜索必须先选择账号
+  if (deep === 1 && !state.account_choice) {
+    ElMessage.warning('请先选择使用的账号')
+    return
+  }
   taskSuggestions.loading = true
   taskSuggestions.deep = deep
   taskSuggestions.lastQuery = q
@@ -678,15 +683,7 @@ async function searchSuggestions(deep: 0 | 1) {
   try {
     let driveType: string | null = null
     if (deep === 1) {
-      if (state.account_choice !== '__AUTO__') {
-        driveType = driveTypeForAccountName(state.account_choice)
-      } else {
-        const url = String(state.shareurl || '').trim()
-        if (url) {
-          const dt = detectDriveTypeByUrl(url)
-          driveType = dt ? String(dt) : null
-        }
-      }
+      driveType = driveTypeForAccountName(state.account_choice)
     }
     const data = await fetchTaskSuggestions(q, deep, driveType, state.addition?.search_filter || '', state.addition?.search_exclude || '', state.addition?.search_date_from || '', state.addition?.search_filter_mode || '', state.addition?.search_exclude_mode || '', state.addition?.show_blocked)
     if (runId !== taskSuggestions.runId) return
@@ -1033,7 +1030,7 @@ function currentDrivePathLabel() {
 
 async function browseDriveDir(dir_path: string) {
   drivePicker.loading = true
-  const account_name = state.account_choice !== '__AUTO__' ? state.account_choice : null
+  const account_name = state.account_choice || null
   try {
     const data = await browseDrive({
       dir_path,
@@ -1124,11 +1121,10 @@ function driveTypeForTask(task: TaskItem) {
 }
 
 function currentDriveType() {
-  if (state.account_choice !== '__AUTO__') {
+  if (state.account_choice) {
     return driveTypeForAccountName(state.account_choice)
   }
-  const dt = detectDriveTypeByUrl(state.shareurl)
-  return dt ? String(dt) : null
+  return null
 }
 
 function cleanSavepathBase(savepath: string, taskname: string) {
@@ -1327,7 +1323,7 @@ function syncState() {
     shareAuto.lastResolved = String(props.task.shareurl || '').trim()
     state.shareurl = props.task.shareurl
     state.savepath = props.task.savepath
-    state.account_choice = props.task.account_name ? String(props.task.account_name) : '__AUTO__'
+    state.account_choice = props.task.account_name ? String(props.task.account_name) : ''
     state.enabled = props.task.enabled
     const taskUid = String(props.task.task_uid || '').trim()
     const syncedUids = taskUid
@@ -1354,7 +1350,7 @@ function syncState() {
     state.taskname = String(props.presetTaskname || '').trim()
     state.shareurl = ''
     state.savepath = ''
-    state.account_choice = '__AUTO__'
+    state.account_choice = ''
     state.auto_update_shareurl = true
     state.enabled = true
     state.sync_task_uids = []
@@ -1541,7 +1537,7 @@ async function submit() {
     }
   }
 
-  const account_name = state.account_choice !== '__AUTO__' ? state.account_choice : null
+  const account_name = state.account_choice || null
   const normalizedShare = normalizeCloud189ShareUrl(state.shareurl.trim())
   const shareurl = (normalizedShare?.url || state.shareurl).trim()
   if (shareurl !== state.shareurl.trim()) state.shareurl = shareurl
@@ -1613,7 +1609,7 @@ async function createSaveDir() {
   const path = String(state.savepath || '').trim()
   if (!path) return ElMessage.warning('请先输入或选择保存路径')
   try {
-    await mkdirDrive({ dir_path: path, account_name: state.account_choice !== '__AUTO__' ? state.account_choice : null })
+    await mkdirDrive({ dir_path: path, account_name: state.account_choice || null })
     ElMessage.success('目录已创建')
   } catch (e: any) {
     if (e?.message?.includes('已存在') || e?.message?.includes('exist')) {
@@ -1742,7 +1738,7 @@ async function openSharePicker(overrideUrl?: string) {
 async function refreshSharePicker(pdir_fid: string | null) {
   sharePicker.loading = true
   try {
-    const account_name = state.account_choice !== '__AUTO__' ? state.account_choice : null
+    const account_name = state.account_choice || null
     const data = await previewShare({
       shareurl: sharePicker.shareurl,
       account_name,
@@ -1885,7 +1881,7 @@ async function autoResolveShareFolder(shareurl: string, runId: number) {
   if (!props.modelValue) return
   if (runId !== shareAuto.runId) return
 
-  const account_name = state.account_choice !== '__AUTO__' ? state.account_choice : null
+  const account_name = state.account_choice || null
   const root = getShareurl(input, { fid: '0' })
   let current = input
 
@@ -1999,6 +1995,11 @@ watch(
     if (!props.modelValue) return
     const q = sanitizeSuggestionQuery(value)
     if (q.length < 2) {
+      taskSuggestions.items = []
+      return
+    }
+    // 必须选择账号后才自动搜索
+    if (!state.account_choice) {
       taskSuggestions.items = []
       return
     }
@@ -2138,14 +2139,10 @@ async function submitSaveTemplate() {
           <el-switch v-model="state.enabled" active-text="启用" inactive-text="禁用" size="small" />
         </div>
         <el-form-item label="使用账号">
-          <el-select v-model="state.account_choice" style="width: 100%">
-            <el-option label="自动选择（按分享链接）" value="__AUTO__" />
+          <el-select v-model="state.account_choice" style="width: 100%" placeholder="请选择使用的账号">
             <el-option v-if="unavailableSelectedAccount" :key="`unavailable-${state.account_choice}`" :label="unavailableSelectedAccountLabel" :value="state.account_choice" disabled />
             <el-option v-for="item in activeAccounts" :key="item.id" :label="`${item.name}（${item.drive_type}）`" :value="item.name" />
           </el-select>
-          <div v-if="state.account_choice === '__AUTO__'" class="drawer-form__hint">
-            自动模式下会优先选择与分享链接同类型的默认账号。
-          </div>
         </el-form-item>
         <el-form-item label="任务名称">
           <el-input v-model="state.taskname" placeholder="例如：某电视剧" @focus="showSuggestions" @blur="hideSuggestionsLater">

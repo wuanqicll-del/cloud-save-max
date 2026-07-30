@@ -105,7 +105,7 @@ def _pansou_cloud_type(value: str | None) -> str | None:
         "115": "115",
         "123pan": "pan123",
         "cloud189": "tianyi",
-        "baidu": "baiduPan",
+        "baidu": "baidu",
         "quark": "quark",
         "uc": "uc",
         "aliyun": "aliyun",
@@ -412,7 +412,7 @@ class PanSouClient:
                 "kw": keyword,
                 "cloud_types": [cloud_type]
                 if cloud_type
-                else ["quark", "pan123", "pan115", "uc", "tianyi", "aliyun", "xunlei", "baiduPan"],
+                else ["quark", "pan123", "pan115", "uc", "tianyi", "aliyun", "xunlei", "baidu"],
                 "res": "merge",
                 "refresh": bool(refresh),
             }
@@ -430,8 +430,8 @@ class PanSouClient:
                     keys.extend(["cloud115", "pan115", "115"])
                 elif cloud_type == "pan123":
                     keys.extend(["123pan", "pan123"])
-                elif cloud_type == "baiduPan":
-                    keys.extend(["baidupan", "baidu"])
+                elif cloud_type == "baidu":
+                    keys.extend(["baidu", "baidupan", "baiduPan"])
                 for k in keys:
                     if isinstance(merged, dict) and isinstance(merged.get(k), list):
                         items = merged.get(k) or []

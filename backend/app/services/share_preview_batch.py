@@ -839,11 +839,11 @@ def validate_share_links_streaming(db: Session, shareurls: list[str]):
         if drive_type is None:
             yield ShareValidateItemOut(shareurl=url, ok=False, message="无法识别的网盘分享链接")
             continue
-        # 115网盘：跳过验证，直接标记有效
-        if drive_type == "115":
+        # 非夸克网盘直接返回，无需验证（避免多线程 session 冲突）
+        if drive_type == "quark":
+            per_drive.setdefault(str(drive_type), []).append(url)
+        else:
             yield ShareValidateItemOut(shareurl=url, ok=True)
-            continue
-        per_drive.setdefault(str(drive_type), []).append(url)
 
     if not per_drive:
         return
