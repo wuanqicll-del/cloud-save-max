@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { resetDynamicRoutes } from '@/router'
 import { useAuthStore } from '@/stores/auth'
-import { getHealth } from '@/api/health'
+
 
 const route = useRoute()
 const router = useRouter()
@@ -93,14 +93,8 @@ async function handleLogout() {
 }
 
 onMounted(async () => {
-  try {
-    const health = await getHealth()
-    buildTag.value = health.build_tag || 'dev'
-    buildSha.value = health.build_sha || null
-  } catch {
-    buildTag.value = 'dev'
-    buildSha.value = null
-  }
+  buildTag.value = 'v26.7.30'
+  buildSha.value = '7ac2864'
 })
 
 watch(
