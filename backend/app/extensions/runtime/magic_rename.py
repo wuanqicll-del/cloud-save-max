@@ -19,11 +19,13 @@ class MagicRename:
             "replace": r"{TASKNAME}-{SXX}E{E0}.{EXT}",
         },
         "$SHOW_PRO": {
-            "pattern": r"^(?!.*纯享)(?!.*加更).*?第(\d+)期[\s(（]?[上下].*?\.(mp4|mkv|zip)",
+            # 允许“第N期”与上下集标记之间带有标题，例如：第7期：云绮织梦Ⅰ（上）
+            "pattern": r"^(?!.*纯享)(?!.*加更).*?第(\d+)期(?:(?:.*?[（(][上下][）)])|(?:[\s(（]?[上下])).*?\.(mp4|mkv|zip)$",
             "replace": r"{TASKNAME}-{SXX}E{E2}.{EXT}",
         },
         "$SHOW_SOLO": {
-            "pattern": r"^(?!.*纯享)(?!.*加更).*?第(\d+)期[\s(（]?[上中下].*?\.(mp4|mkv|zip)",
+            # 允许“第N期”与上中下集标记之间带有标题，例如：第7期：云绮织梦Ⅰ（上）
+            "pattern": r"^(?!.*纯享)(?!.*加更).*?第(\d+)期(?:(?:.*?[（(][上中下][）)])|(?:[\s(（]?[上中下])).*?\.(mp4|mkv|zip)$",
             "replace": r"{TASKNAME}-{SXX}E{E3}.{EXT}",
         },
     }
@@ -187,8 +189,8 @@ class MagicRename:
                         value = str(int(value)).zfill(2)
                     elif key == "{E2}":
                         ep = int(value)
-                        if re.search(r"第\d+期[\s(（]?[上下]", file_name):
-                            if re.search(r"第\d+期[\s(（]?下", file_name):
+                        if re.search(r"第\d+期(?:(?:.*?[（(]\s*[上下])|(?:[\s:：_\-]+[上下])|[上下])", file_name):
+                            if re.search(r"第\d+期(?:(?:.*?[（(]\s*下)|(?:[\s:：_\-]+下)|下)", file_name):
                                 value = str(ep * 2).zfill(2)
                             else:
                                 value = str(ep * 2 - 1).zfill(2)
@@ -196,10 +198,10 @@ class MagicRename:
                             value = str(ep).zfill(2)
                     elif key == "{E3}":
                         ep = int(value)
-                        if re.search(r"第\d+期[\s(（]?[上中下]", file_name):
-                            if re.search(r"第\d+期[\s(（]?下", file_name):
+                        if re.search(r"第\d+期(?:(?:.*?[（(]\s*[上中下])|(?:[\s:：_\-]+[上中下])|[上中下])", file_name):
+                            if re.search(r"第\d+期(?:(?:.*?[（(]\s*下)|(?:[\s:：_\-]+下)|下)", file_name):
                                 value = str(ep * 3).zfill(2)
-                            elif re.search(r"第\d+期[\s(（]?中", file_name):
+                            elif re.search(r"第\d+期(?:(?:.*?[（(]\s*中)|(?:[\s:：_\-]+中)|中)", file_name):
                                 value = str(ep * 3 - 1).zfill(2)
                             else:
                                 value = str(ep * 3 - 2).zfill(2)

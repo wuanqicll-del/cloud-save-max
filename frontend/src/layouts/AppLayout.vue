@@ -93,7 +93,7 @@ async function handleLogout() {
 }
 
 onMounted(async () => {
-  buildTag.value = 'v26.7.30'
+  buildTag.value = 'v26.9.6'
   buildSha.value = '7ac2864'
 })
 

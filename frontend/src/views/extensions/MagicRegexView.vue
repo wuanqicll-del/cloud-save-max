@@ -89,6 +89,12 @@ const openlist = reactive({
   tokenInput: '',
 })
 
+const hive = reactive({
+  loading: false,
+  saving: false,
+  api_url: '',
+})
+
 const sharerFilter = reactive({
   loading: false,
   saving: false,
@@ -255,6 +261,33 @@ function addSharerFromInput() {
     }
   }
   sharerDialog.inputValue = ''
+}
+
+
+async function loadHiveSettings() {
+  hive.loading = true
+  try {
+    const { fetchHiveSettings } = await import('@/api/systemSettings')
+    const data = await fetchHiveSettings()
+    hive.api_url = data.hive_api_url || ''
+  } catch (e) {
+    console.error('加载HDHive设置失败', e)
+  } finally {
+    hive.loading = false
+  }
+}
+
+async function saveHiveSettings() {
+  hive.saving = true
+  try {
+    const { updateHiveSettings } = await import('@/api/systemSettings')
+    await updateHiveSettings({ hive_api_url: hive.api_url.trim() })
+    ElMessage.success('HDHive设置已保存')
+  } catch (e) {
+    ElMessage.error('保存失败')
+  } finally {
+    hive.saving = false
+  }
 }
 
 async function loadSharerFilter() {
@@ -638,6 +671,7 @@ onMounted(() => {
   loadSharerFilter()
   loadFilterRules()
   loadTemplates()
+  loadHiveSettings()
 })
 </script>
 
@@ -871,6 +905,27 @@ onMounted(() => {
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="sharerFilter.saving" :disabled="!canWrite" @click="saveSharerFilter">保存配置</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+
+        <el-card class="page__card" shadow="never">
+          <template #header>
+            <div class="card__header">
+              <div>HDHive 影巢设置</div>
+              <el-button text :loading="hive.loading" @click="loadHiveSettings">刷新</el-button>
+            </div>
+          </template>
+          <div style="margin-bottom: 12px; color: var(--el-text-color-secondary); font-size: 13px">
+            配置HDHive服务地址，用于影巢任务获取最新分享链接。
+          </div>
+          <el-form label-position="top" :disabled="hive.loading">
+            <el-form-item label="HDHive服务地址">
+              <el-input v-model="hive.api_url" placeholder="例如：http://192.168.50.41:8080" />
+              <div class="form-item-hint">HDHive项目的访问地址，需要包含端口号</div>
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :loading="hive.saving" :disabled="!canWrite" @click="saveHiveSettings">保存配置</el-button>
             </el-form-item>
           </el-form>
         </el-card>

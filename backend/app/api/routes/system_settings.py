@@ -108,3 +108,29 @@ def replace_filter_rules(payload: FilterWordRuleListOut, db: Session = Depends(g
     _save_filter_rules(db, rules)
     db.commit()
     return payload
+
+
+# ---- HDHive设置 ----
+
+class HiveSettingsOut(BaseModel):
+    hive_api_url: str = ""
+
+
+@router.get("/hive", response_model=HiveSettingsOut, dependencies=[Depends(require_permissions(TASK_READ))])
+def get_hive_settings(db: Session = Depends(get_db)) -> HiveSettingsOut:
+    return HiveSettingsOut(
+        hive_api_url=_get_setting(db, "hive_api_url"),
+    )
+
+
+@router.patch("/hive", response_model=HiveSettingsOut, dependencies=[Depends(require_permissions(TASK_WRITE))])
+def update_hive_settings(
+    payload: HiveSettingsOut,
+    db: Session = Depends(get_db),
+) -> HiveSettingsOut:
+    if payload.hive_api_url is not None:
+        _set_setting(db, "hive_api_url", payload.hive_api_url, "HDHive服务地址")
+    db.commit()
+    return HiveSettingsOut(
+        hive_api_url=_get_setting(db, "hive_api_url"),
+    )

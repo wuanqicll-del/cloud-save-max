@@ -592,47 +592,48 @@ class Cloud115Adapter(BaseCloudDriveAdapter):
         }
 
     def mkdir(self, dir_path: str) -> Dict:
-        """创建目录"""
-        parts = dir_path.rstrip("/").split("/")
-        dir_name = parts[-1] if parts else "新建文件夹"
-        parent_path = "/".join(parts[:-1]) if len(parts) > 1 else ""
+        """创建目录（递归创建所有父目录）"""
+        dir_path = re.sub(r"/{2,}", "/", f"/{dir_path}".strip())
+        if dir_path in ("/", ""):
+            return {"code": 0, "data": {"fid": "0"}}
 
-        parent_cid = "0"
-        if parent_path and parent_path != "/":
-            parent_fids = self.get_fids([parent_path])
-            if parent_fids:
-                parent_cid = parent_fids[0].get("fid", "0")
+        parts = [p for p in dir_path.split("/") if p]
+        current_fid = "0"
+        current_path = ""
 
-        data = {"pid": parent_cid, "cname": dir_name}
-        try:
-            resp = self._request(
-                self.auth_session,
-                "POST",
-                f"{self.API_URL}/files/add",
-                data=data,
-                timeout=15,
-            )
-            result = self._safe_json(resp)
-            if result.get("state"):
-                return {
-                    "code": 0,
-                    "message": "success",
-                    "data": {
-                        "fid": result.get("cid", result.get("file_id")),
-                        "file_name": dir_name,
-                    },
-                }
-            # 目录可能已存在
-            existing = self.get_fids([dir_path])
+        for name in parts:
+            current_path = f"{current_path}/{name}" if current_path else f"/{name}"
+
+            # 尝试获取当前路径的fid
+            existing = self.get_fids([current_path])
             if existing:
-                return {
-                    "code": 0,
-                    "message": "目录已存在",
-                    "data": {"fid": existing[0].get("fid"), "file_name": dir_name},
-                }
-            return {"code": 1, "message": result.get("error", "创建目录失败")}
-        except Exception as e:
-            return {"code": 1, "message": f"创建目录失败: {e}"}
+                current_fid = existing[0].get("fid", "0")
+                continue
+
+            # 创建目录
+            data = {"pid": current_fid, "cname": name}
+            try:
+                resp = self._request(
+                    self.auth_session,
+                    "POST",
+                    f"{self.API_URL}/files/add",
+                    data=data,
+                    timeout=15,
+                )
+                result = self._safe_json(resp)
+                if result.get("state"):
+                    current_fid = result.get("cid", result.get("file_id"))
+                else:
+                    # 目录可能已存在，再次尝试获取
+                    existing = self.get_fids([current_path])
+                    if existing:
+                        current_fid = existing[0].get("fid", "0")
+                    else:
+                        return {"code": 1, "message": result.get("error", f"创建目录 {name} 失败")}
+            except Exception as e:
+                return {"code": 1, "message": f"创建目录 {name} 失败: {e}"}
+
+        return {"code": 0, "message": "success", "data": {"fid": current_fid}}
 
     def rename(self, fid: str, file_name: str) -> Dict:
         """重命名文件"""

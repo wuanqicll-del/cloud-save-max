@@ -3,6 +3,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 
 import DramaTaskDrawer from '@/components/tasks/DramaTaskDrawer.vue'
+import { getHiveResources } from '@/api/hive'
+import type { HiveResource } from '@/api/hive'
 import {
   createTask,
   deleteTask,
@@ -44,6 +46,9 @@ const syncingSnapshotId = ref<number | null>(null)
 const syncTasksLoading = ref(false)
 
 const drawerVisible = ref(false)
+const isHiveTask = ref(false)
+const hiveResources = ref<HiveResource[]>([])
+const hiveResourcesLoading = ref(false)
 const currentTask = ref<TaskItem | null>(null)
 
 const runLogDialog = reactive({
@@ -254,6 +259,7 @@ async function refreshSyncTasksIfNeeded() {
 }
 
 async function openCreateDrawer() {
+  isHiveTask.value = false
   syncTasksLoading.value = true
   try {
     await refreshSyncTasksIfNeeded()
@@ -264,7 +270,55 @@ async function openCreateDrawer() {
   drawerVisible.value = true
 }
 
+
+async function openHiveCreateDrawer() {
+  isHiveTask.value = true
+  hiveResourcesLoading.value = true
+  try {
+    const result = await getHiveResources()
+    if (result.success) {
+      hiveResources.value = result.data || []
+      if (result.data?.length === 0) {
+        ElMessage.info('HDHive片单暂无资源，请先在HDHive中添加资源')
+      }
+    } else {
+      const msg = result.message || '未知错误'
+      ElMessage.warning('获取HDHive资源失败: ' + msg)
+    }
+  } catch (e: any) {
+    const msg = e?.response?.data?.message || e?.message || '未知错误'
+    ElMessage.error('获取HDHive资源失败: ' + msg)
+  } finally {
+    hiveResourcesLoading.value = false
+  }
+  currentTask.value = null
+  drawerVisible.value = true
+}
+
 async function openEditDrawer(row: TaskItem) {
+  // 判断是否是影巢任务
+  const isHive = !!(row.extra && row.extra.hive_item_id)
+  isHiveTask.value = isHive
+  
+  // 如果是影巢任务，加载HDHive资源列表
+  if (isHive) {
+    hiveResourcesLoading.value = true
+    try {
+      const result = await getHiveResources()
+      if (result.success) {
+        hiveResources.value = result.data || []
+      } else {
+        const msg = result.message || "未知错误"
+        ElMessage.warning("获取HDHive资源失败: " + msg)
+      }
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.message || "未知错误"
+      ElMessage.error("获取HDHive资源失败: " + msg)
+    } finally {
+      hiveResourcesLoading.value = false
+    }
+  }
+  
   syncTasksLoading.value = true
   try {
     await refreshSyncTasksIfNeeded()
@@ -274,7 +328,6 @@ async function openEditDrawer(row: TaskItem) {
   currentTask.value = row
   drawerVisible.value = true
 }
-
 watch(
   drawerVisible,
   async (visible) => {
@@ -914,6 +967,7 @@ onBeforeUnmount(() => {
         <el-button v-if="canRun" :loading="runAllDialog.running" :disabled="runAllDialog.running" @click="confirmRunAll">执行全部</el-button>
         <el-button v-if="canWrite" :loading="stopCompletedSaving" @click="confirmStopCompleted">停止已完结任务</el-button>
         <el-button v-if="canWrite" type="success" :loading="syncTasksLoading" @click="openCreateDrawer">新增任务</el-button>
+        <el-button v-if="canWrite" type="warning" :loading="hiveResourcesLoading" @click="openHiveCreateDrawer">新增影巢任务</el-button>
       </div>
     </div>
 
@@ -1130,6 +1184,8 @@ onBeforeUnmount(() => {
       :plugins="activePlugins"
       :sync-tasks="syncTasks"
       :submitting="submitting"
+      :is-hive-task="isHiveTask"
+      :hive-resources="hiveResources"
       @save="submitTask"
       @sync-created="refreshSyncTasksIfNeeded"
     />

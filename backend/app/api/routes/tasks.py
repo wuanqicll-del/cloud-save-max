@@ -1304,33 +1304,6 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
                 item["filtered_by_search"] = True
         preview_list.append(item)
 
-    best: dict[str, tuple[tuple[float, float], int]] = {}
-    for idx, f in enumerate(preview_list):
-        if f.get("file_name_saved"):
-            continue
-        if f.get("dir"):
-            continue
-        target = f.get("file_name_re")
-        if not target:
-            continue
-        key = os.path.splitext(target)[0] if ignore_ext else target
-        sz = _pick_size(f)
-        ts = _to_ts(f.get("updated_at"))
-        score = (float(sz) if sz is not None else float("-inf"), ts if ts is not None else float("-inf"))
-        prev = best.get(key)
-        if prev is None or score > prev[0] or (score == prev[0] and idx > prev[1]):
-            best[key] = (score, idx)
-    if best:
-        keep_idx = set(v[1] for v in best.values())
-        for idx, f in enumerate(preview_list):
-            if idx in keep_idx:
-                continue
-            if f.get("file_name_saved") or f.get("dir"):
-                continue
-            if f.get("file_name_re"):
-                f["file_name_saved"] = "重命名冲突（保留最大）"
-                f["file_name_re"] = None
-
     # 最小文件大小过滤标记
     min_size_str = str(payload.min_size or "").strip()
     if min_size_str:
@@ -1404,6 +1377,30 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
                         f["filtered_by_file_date"] = True
                 except Exception as e:
                     _ft_dbg.info("[file_time_filter] error: %s", e)
+
+    # 过滤完成后再判断重命名冲突，避免已被关键词/文件规则排除的文件参与冲突。
+    best: dict[str, tuple[tuple[float, float], int]] = {}
+    for idx, f in enumerate(preview_list):
+        if f.get("file_name_saved") or f.get("dir"):
+            continue
+        target = f.get("file_name_re")
+        if not target:
+            continue
+        key = os.path.splitext(target)[0] if ignore_ext else target
+        sz = _pick_size(f)
+        ts = _to_ts(f.get("updated_at"))
+        score = (float(sz) if sz is not None else float("-inf"), ts if ts is not None else float("-inf"))
+        prev = best.get(key)
+        if prev is None or score > prev[0] or (score == prev[0] and idx > prev[1]):
+            best[key] = (score, idx)
+    if best:
+        keep_idx = set(v[1] for v in best.values())
+        for idx, f in enumerate(preview_list):
+            if idx in keep_idx or f.get("file_name_saved") or f.get("dir"):
+                continue
+            if f.get("file_name_re"):
+                f["file_name_saved"] = "重命名冲突（保留最大）"
+                f["file_name_re"] = None
 
     items: list[SharePreviewItemOut] = []
     for it in preview_list:

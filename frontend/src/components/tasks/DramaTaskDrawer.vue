@@ -9,6 +9,7 @@ import { fetchSharerFilterSettings } from '@/api/systemSettings'
 import { fetchTaskTemplates, createTaskTemplate } from '@/api/taskTemplates'
 import type { TaskTemplate } from '@/api/taskTemplates'
 import type { DriveAccountItem, PluginItem } from '@/types/extensions'
+import type { HiveResource } from '@/api/hive'
 import type { TMDBBrief } from '@/types/media'
 import type { TaskSuggestionItem } from '@/types/resourceSearch'
 import type { SyncTaskItem } from '@/types/syncTasks'
@@ -54,6 +55,8 @@ const props = withDefaults(
     presetTaskname?: string
     presetTmdb?: { tmdb_id: number; tmdb_media_type: 'movie' | 'tv' } | null
     autoDeepSuggest?: boolean
+    isHiveTask?: boolean
+    hiveResources?: HiveResource[]
   }>(),
   {
     task: null,
@@ -62,6 +65,8 @@ const props = withDefaults(
     presetTaskname: '',
     presetTmdb: null,
     autoDeepSuggest: false,
+    isHiveTask: false,
+    hiveResources: () => [],
   },
 )
 
@@ -96,6 +101,7 @@ const state = reactive({
   extra: {} as Record<string, any>,
 })
 
+const selectedHiveResource = ref<HiveResource | null>(null)
 const manualRunweekBackup = ref([] as number[])
 const autoRunweekDays = ref([] as number[])
 
@@ -209,7 +215,7 @@ const hasRenameRule = computed(() => {
   return !!(String(state.pattern || '').trim() && String(state.replace || '').trim())
 })
 
-const showAutoUpdateToggle = computed(() => true)
+const showAutoUpdateToggle = computed(() => !props.isHiveTask)
 
 const unavailableSelectedAccount = computed(() => {
   if (!state.account_choice) return null
@@ -1342,6 +1348,13 @@ function syncState() {
     state.tmdb_media_type = props.task.tmdb_media_type ?? null
     state.addition = clone(props.task.addition || {})
     state.extra = clone(props.task.extra || {})
+    // 初始化HDHive资源选择器
+    if (props.task.extra && props.task.extra.hive_item_id && props.hiveResources) {
+      const hiveItem = props.hiveResources.find(r => r.item_id === props.task!.extra.hive_item_id)
+      if (hiveItem) {
+        selectedHiveResource.value = hiveItem
+      }
+    }
     state.auto_update_shareurl =
       detectDriveTypeByUrl(String(props.task.shareurl || '').trim())
         ? Boolean((props.task.extra as any)?.auto_update_shareurl ?? (props.task.extra as any)?.auto_update_115_shareurl ?? true)
@@ -1493,19 +1506,51 @@ function closeDrawer() {
   emit('update:modelValue', false)
 }
 
+
+function onHiveResourceChange(resource: HiveResource | null) {
+  if (resource) {
+    // 自动填充任务名称
+    state.taskname = resource.title || ''
+    // 设置初始shareurl（虽然执行时会从HDHive获取，但这里还是设置一个）
+    state.shareurl = resource.full_url || ''
+    // 设置TMDB信息
+    if (resource.tmdb_id) {
+      state.tmdb_id = parseInt(resource.tmdb_id) || null
+    }
+    if (resource.media_type) {
+      state.tmdb_media_type = resource.media_type
+    }
+    // 存储hive_item_id到extra
+    state.extra.hive_item_id = resource.item_id
+    // 自动开启自动换链
+    state.auto_update_shareurl = true
+  } else {
+    state.extra.hive_item_id = null
+  }
+}
+
 function buildExtraPayload() {
   const extra = clone(state.extra || {})
   extra.runweek_mode = state.runweek_mode
   extra.runweek = state.runweek_mode === 'auto' ? [] : clone(state.runweek || [])
-  // 没有重命名规则时强制关闭自动换链
-  extra.auto_update_shareurl = (showAutoUpdateToggle.value && hasRenameRule.value) ? Boolean(state.auto_update_shareurl) : false
+  // 影巢任务强制开启自动换链
+  if (props.isHiveTask && state.extra.hive_item_id) {
+    extra.auto_update_shareurl = true
+    extra.hive_item_id = state.extra.hive_item_id
+  } else {
+    // 没有重命名规则时强制关闭自动换链
+    extra.auto_update_shareurl = (showAutoUpdateToggle.value && hasRenameRule.value) ? Boolean(state.auto_update_shareurl) : false
+  }
   return extra
 }
 
 function validateBeforeSubmit() {
   const missing: string[] = []
   if (!String(state.taskname || '').trim()) missing.push('任务名称')
-  if (!String(state.shareurl || '').trim()) missing.push('分享链接')
+  // 影巢任务不需要验证分享链接
+  if (!props.isHiveTask && !String(state.shareurl || '').trim()) missing.push('分享链接')
+  // 影巢任务需要选择HDHive资源
+  if (props.isHiveTask && !state.extra.hive_item_id) missing.push('HDHive资源')
   if (!String(state.savepath || '').trim()) missing.push('保存路径（savepath）')
   if (missing.length) {
     ElMessageBox.alert(`请先填写：${missing.join('、')}`, '提示', {
@@ -1609,7 +1654,7 @@ async function createSaveDir() {
   const path = String(state.savepath || '').trim()
   if (!path) return ElMessage.warning('请先输入或选择保存路径')
   try {
-    await mkdirDrive({ dir_path: path, account_name: state.account_choice || null })
+    await mkdirDrive({ dir_path: path, account_name: state.account_choice || null, shareurl: state.shareurl || null })
     ElMessage.success('目录已创建')
   } catch (e: any) {
     if (e?.message?.includes('已存在') || e?.message?.includes('exist')) {
@@ -2146,7 +2191,7 @@ async function submitSaveTemplate() {
         </el-form-item>
         <el-form-item label="任务名称">
           <el-input v-model="state.taskname" placeholder="例如：某电视剧" @focus="showSuggestions" @blur="hideSuggestionsLater">
-            <template #append>
+            <template #append v-if="!isHiveTask">
               <el-button
                 :disabled="sanitizeSuggestionQuery(state.taskname).length < 2"
                 :loading="taskSuggestions.loading && taskSuggestions.deep === 1"
@@ -2221,21 +2266,49 @@ async function submitSaveTemplate() {
             <el-button size="small" type="danger" plain :disabled="!state.tmdb_id" @click="clearTmdbLink">解除关联</el-button>
           </div>
         </el-form-item>
+        <!-- HDHive资源选择器 -->
+        <el-form-item v-if="isHiveTask" label="关联HDHive资源">
+          <el-select 
+            v-model="selectedHiveResource" 
+            placeholder="选择HDHive资源" 
+            style="width: 100%"
+            @change="onHiveResourceChange"
+          >
+            <el-option 
+              v-for="item in hiveResources" 
+              :key="item.item_id" 
+              :label="item.title + (item.uploader_name ? ' - ' + item.uploader_name : '')" 
+              :value="item"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>{{ item.title }}</span>
+                <span style="color: #8492a6; font-size: 12px;">{{ item.uploader_name }}</span>
+              </div>
+            </el-option>
+          </el-select>
+          <div class="drawer-form__hint">从HDHive片单中选择资源，执行时会自动获取最新分享链接</div>
+          <div v-if="selectedHiveResource" class="drawer-form__hint" style="color: var(--el-color-success);">
+            ✓ 已选择: {{ selectedHiveResource.title }} | 状态: {{ selectedHiveResource.validate_status || '未知' }}
+          </div>
+        </el-form-item>
+        
+        <!-- 分享链接输入框（影巢任务用于预览，普通任务用于输入） -->
         <el-form-item label="分享链接">
-          <el-input v-model="state.shareurl" placeholder="https://...">
+          <el-input v-model="state.shareurl" placeholder="https://..." :disabled="isHiveTask && !state.shareurl">
             <template #append>
               <el-button :disabled="!state.shareurl" @click="openSharePicker()">选择文件夹</el-button>
             </template>
           </el-input>
+          <div v-if="isHiveTask" class="drawer-form__hint">选择HDHive资源后会自动填充，也可点击"选择文件夹"预览内容</div>
         </el-form-item>
-        <el-form-item label="使用模板">
+        <el-form-item v-if="!isHiveTask" label="使用模板">
           <el-select v-model="selectedTemplateId" placeholder="选择模板自动填充配置" clearable style="width: 100%" @change="applyTemplate">
             <el-option v-for="t in templateList" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
       </div>
 
-      <div class="drawer-form__section">
+      <div v-if="!isHiveTask" class="drawer-form__section">
         <div class="drawer-form__section-title">搜索筛选</div>
         <el-form-item label="搜索过滤词">
           <el-input v-model="state.addition.search_exclude" placeholder="可选，用 | 分隔，如：预告|花絮">

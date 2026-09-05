@@ -178,6 +178,68 @@ class TaskExecutor:
                     task_data["tmdb_update_weekdays"] = []
                     task_data["tmdb_episode_weekdays"] = []
 
+
+        # ==================== 影巢任务处理 ====================
+        # 如果是影巢任务，从HDHive获取最新分享链接并自动定位目录
+        if task_data.get('extra', {}).get('hive_item_id'):
+            log.set_stage("hive_resolve")
+            log.section("影巢任务")
+            hive_item_id = task_data['extra']['hive_item_id']
+            log.line(f"关联HDHive资源: #{hive_item_id}")
+            
+            try:
+                from app.services.hive_client import get_hive_client
+                hive_client = get_hive_client()
+                
+                if hive_client.is_available():
+                    latest_url = hive_client.get_resource_latest_url(int(hive_item_id))
+                    if latest_url:
+                        old_url = task_data.get('shareurl', '')
+                        log.line(f"OK: 获取到最新链接")
+                        
+                        # 自动定位目录：调用 fetch_share_file_list_grouped 找到有文件的目录
+                        try:
+                            from app.services.share_preview_batch import fetch_share_file_list_grouped
+                            from app.services.drama_share_autoupdate import _rewrite_shareurl_with_fid
+                            
+                            account_name = task_data.get('account_name')
+                            groups = fetch_share_file_list_grouped(
+                                self.db, 
+                                latest_url, 
+                                account_name=account_name
+                            )
+                            
+                            if groups:
+                                # 取第一个有文件的目录的fid
+                                first_group = groups[0]
+                                files, fid, ts, dir_name = first_group
+                                if fid:
+                                    latest_url = _rewrite_shareurl_with_fid(latest_url, fid)
+                                    log.line(f"自动定位目录: {dir_name or fid}")
+                                    log.line(f"文件数: {len(files)}")
+                            
+                            # 影巢任务禁用自动换链
+                            if "extra" not in task_data:
+                                task_data["extra"] = {}
+                            task_data["extra"]["auto_update_shareurl"] = False
+                            task_data["extra"]["auto_update_115_shareurl"] = False
+                            log.line("已禁用自动换链")
+                        except Exception as e:
+                            logger.warning(f"自动定位目录失败: {e}")
+                            log.line(f"WARN: 自动定位失败，使用原始链接")
+                        
+                        task_data['shareurl'] = latest_url
+                        if old_url != latest_url:
+                            log.line(f"链接已更新")
+                    else:
+                        log.line("WARN: 未获取到链接，使用原链接")
+                else:
+                    log.line("WARN: HDHive服务不可用，使用原链接")
+            except Exception as e:
+                logger.error(f"影巢任务获取链接失败: {e}")
+                log.line(f"WARN: 获取失败 - {str(e)}，使用原链接")
+        # ==================== 影巢任务处理结束 ====================
+
         if init_account_for_task:
             account_manager.init_for_tasks([task_data])
         default_adapter = account_manager.get_default_adapter()

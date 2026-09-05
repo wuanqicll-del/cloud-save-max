@@ -493,21 +493,6 @@ class DramaTaskExecutor:
             except Exception:
                 return None
 
-        best: dict[str, tuple[tuple[float, float], int]] = {}
-        for idx, f in enumerate(candidates):
-            target = str(f.get("file_name_re") or "")
-            if not target:
-                continue
-            key = os.path.splitext(target)[0] if ignore_extension else target
-            sz = _to_size(f.get("size"))
-            ts = _to_ts(f.get("updated_at"))
-            score = (float(sz) if sz is not None else float("-inf"), ts if ts is not None else float("-inf"))
-            prev = best.get(key)
-            if prev is None or score > prev[0] or (score == prev[0] and idx > prev[1]):
-                best[key] = (score, idx)
-        keep_idx = set(v[1] for v in best.values())
-        candidates = [f for idx, f in enumerate(candidates) if idx in keep_idx]
-
         # 最小文件大小过滤
         addition = self.task_data.get("addition") or {}
         min_size_str = str(addition.get("min_size") or "").strip()
@@ -554,6 +539,22 @@ class DramaTaskExecutor:
                 removed = before - len(candidates)
                 if removed:
                     self._line(f"文件筛选：移除 {removed} 个不匹配的文件")
+
+        # 过滤完成后再判断重命名冲突，避免已排除的文件抢占目标名称。
+        best: dict[str, tuple[tuple[float, float], int]] = {}
+        for idx, f in enumerate(candidates):
+            target = str(f.get("file_name_re") or "")
+            if not target:
+                continue
+            key = os.path.splitext(target)[0] if ignore_extension else target
+            sz = _to_size(f.get("size"))
+            ts = _to_ts(f.get("updated_at"))
+            score = (float(sz) if sz is not None else float("-inf"), ts if ts is not None else float("-inf"))
+            prev = best.get(key)
+            if prev is None or score > prev[0] or (score == prev[0] and idx > prev[1]):
+                best[key] = (score, idx)
+        keep_idx = set(v[1] for v in best.values())
+        candidates = [f for idx, f in enumerate(candidates) if idx in keep_idx]
 
         plan: list[DramaPlanItem] = []
         for f in candidates:

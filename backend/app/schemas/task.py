@@ -119,3 +119,23 @@ class SavepathSnapshotSyncOut(BaseModel):
     skipped: int = 0
     failed: int = 0
     items: list[SavepathSnapshotSyncItemOut] = []
+
+
+class HiveResourceOut(BaseModel):
+    """HDHive资源输出"""
+    item_id: int
+    resource_id: int | None = None
+    title: str | None = None
+    media_type: str | None = None
+    tmdb_id: str | None = None
+    full_url: str | None = None
+    access_code: str | None = None
+    validate_status: str | None = None
+    uploader_name: str | None = None
+
+
+class HiveResourceListOut(BaseModel):
+    """HDHive资源列表输出"""
+    success: bool
+    data: list[HiveResourceOut] = []
+    message: str | None = None
