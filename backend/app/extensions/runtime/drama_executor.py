@@ -15,6 +15,7 @@ from app.core.settings import settings
 from app.extensions.runtime.execution_log import ExecutionLog
 from app.extensions.runtime.magic_rename import MagicRename
 from app.extensions.runtime.retry_utils import RetryResult, retry_call, summarize_payload
+from app.services.year_filter import active_filter_year, share_path_year_reason, year_allowed
 
 
 logger = logging.getLogger(__name__)
@@ -243,8 +244,14 @@ class DramaTaskExecutor:
                 return RetryResult(value=detail, ok=False, error_message=f"get_detail missing list: {summarize_payload(detail)}")
             return RetryResult(value=detail, ok=True)
 
-        detail = self._retry(action="get_detail", fn=lambda: self.adapter.get_detail(pwd_id, stoken, pdir_fid or ""), validate=_validate)
-        return (((detail or {}).get("data") or {}).get("list")) or []
+        filter_year = active_filter_year(self.task_data.get("addition") or {})
+        detail = self._retry(action="get_detail", fn=lambda: self.adapter.get_detail(pwd_id, stoken, pdir_fid or "", fetch_share_full_path=1 if filter_year else 0), validate=_validate)
+        data = (detail or {}).get("data") or {}
+        reason = share_path_year_reason(data, pdir_fid, filter_year)
+        if reason:
+            self._line(reason)
+            raise SkipTask(reason)
+        return data.get("list") or []
 
     def _list_dest_dir_map(self, dest_fid: str) -> dict[str, str]:
         listing = self._ls_dir(dest_fid)
@@ -421,8 +428,68 @@ class DramaTaskExecutor:
         replace = str(self.task_data.get("replace") or "")
         ignore_extension = bool(self.task_data.get("ignore_extension"))
 
-        mr = MagicRename(magic_regex=(self.task_data.get("magic_regex") if isinstance(self.task_data.get("magic_regex"), dict) else None))
-        mr.set_taskname(taskname)
+        def _to_size(v):
+            try:
+                return int(v)
+            except Exception:
+                return None
+
+        # 先按任务配置过滤文件：重命名（含 TMDB 对照）只处理过滤后剩下的文件
+        addition = self.task_data.get("addition") or {}
+        files: list[dict[str, Any]] = list(share_files)
+        filter_year = active_filter_year(addition)
+        if filter_year:
+            before = len(files)
+            files = [f for f in files if year_allowed(_get_name(f), filter_year)]
+            self._line(f"年份过滤：目标 {filter_year}，移除 {before - len(files)} 个文件")
+
+        min_size_str = str(addition.get("min_size") or "").strip()
+        if min_size_str:
+            min_bytes = _parse_size(min_size_str)
+            if min_bytes is not None and min_bytes > 0:
+                before = len(files)
+                files = [f for f in files if (_to_size(f.get("size")) or 0) >= min_bytes]
+                removed = before - len(files)
+                if removed:
+                    self._line(f"大小过滤：移除 {removed} 个低于 {min_size_str} 的文件")
+
+        filter_words_str = str(addition.get("filter_words") or "").strip()
+        if filter_words_str:
+            filter_words = [w.strip().lower() for w in filter_words_str.split("|") if w.strip()]
+            if filter_words:
+                before = len(files)
+                files = [f for f in files if not any(w in _get_name(f).lower() for w in filter_words)]
+                removed = before - len(files)
+                if removed:
+                    self._line(f"关键词过滤：移除 {removed} 个匹配的文件")
+
+        file_filter_str = str(addition.get("file_filter") or "").strip()
+        if file_filter_str:
+            file_filter_words = [w.strip().lower() for w in file_filter_str.split("|") if w.strip()]
+            if file_filter_words:
+                file_filter_mode = str(addition.get("file_filter_mode") or "all").strip().lower()
+                before = len(files)
+                if file_filter_mode == "any":
+                    files = [f for f in files if any(w in _get_name(f).lower() for w in file_filter_words)]
+                else:
+                    files = [f for f in files if all(w in _get_name(f).lower() for w in file_filter_words)]
+                removed = before - len(files)
+                if removed:
+                    self._line(f"文件筛选：移除 {removed} 个不匹配的文件")
+
+        from app.db.session import SessionLocal
+        from app.extensions.runtime.rename_engine import build_rename_engine
+
+        with SessionLocal() as _plan_db:
+            mr = build_rename_engine(
+                _plan_db,
+                task_data=self.task_data,
+                names=[_get_name(raw) for raw in files],
+                log=self._line,
+            )
+        fatal_reason = getattr(getattr(mr, "plan", None), "fatal_reason", None)
+        if fatal_reason:
+            raise RuntimeError(str(fatal_reason))
         pattern, replace = mr.magic_regex_conv(pattern, replace)
         compiled_search = re.compile(pattern, re.IGNORECASE) if pattern else None
         tmdb_series_title = str(self.task_data.get("tmdb_series_title") or "").strip() or None
@@ -455,7 +522,7 @@ class DramaTaskExecutor:
                     pass
 
         candidates: list[dict[str, Any]] = []
-        for raw in share_files:
+        for raw in files:
             fid = _get_fid(raw)
             origin_name = _get_name(raw)
             fid_token = _get_fid_token(raw)
@@ -475,6 +542,11 @@ class DramaTaskExecutor:
                     except Exception:
                         pass
             file_name_re = mr.sub(pattern, replace, origin_name) if (pattern or replace) else origin_name
+            if not file_name_re:
+                # TMDB 对照不上的正片不转存，避免留下错编号文件
+                reason = getattr(mr, "blocked_reason", lambda _n: None)(origin_name)
+                self._line(f"TMDB 重命名跳过：{origin_name} 原因={reason or '无法对照 TMDB 集号'}")
+                continue
             candidates.append(
                 {
                     "fid": fid,
@@ -486,59 +558,6 @@ class DramaTaskExecutor:
                     "dir": False,
                 }
             )
-
-        def _to_size(v):
-            try:
-                return int(v)
-            except Exception:
-                return None
-
-        # 最小文件大小过滤
-        addition = self.task_data.get("addition") or {}
-        min_size_str = str(addition.get("min_size") or "").strip()
-        if min_size_str:
-            min_bytes = _parse_size(min_size_str)
-            if min_bytes is not None and min_bytes > 0:
-                before = len(candidates)
-                candidates = [f for f in candidates if (_to_size(f.get("size")) or 0) >= min_bytes]
-                removed = before - len(candidates)
-                if removed:
-                    self._line(f"大小过滤：移除 {removed} 个低于 {min_size_str} 的文件")
-
-        # 关键词过滤
-        filter_words_str = str(addition.get("filter_words") or "").strip()
-        if filter_words_str:
-            filter_words = [w.strip().lower() for w in filter_words_str.split("|") if w.strip()]
-            if filter_words:
-                before = len(candidates)
-                candidates = [
-                    f for f in candidates
-                    if not any(w in _get_name(f).lower() for w in filter_words)
-                ]
-                removed = before - len(candidates)
-                if removed:
-                    self._line(f"关键词过滤：移除 {removed} 个匹配的文件")
-
-        # 文件关键词筛选
-        file_filter_str = str(addition.get("file_filter") or "").strip()
-        if file_filter_str:
-            file_filter_words = [w.strip().lower() for w in file_filter_str.split("|") if w.strip()]
-            if file_filter_words:
-                file_filter_mode = str(addition.get("file_filter_mode") or "all").strip().lower()
-                before = len(candidates)
-                if file_filter_mode == "any":
-                    candidates = [
-                        f for f in candidates
-                        if any(w in _get_name(f).lower() for w in file_filter_words)
-                    ]
-                else:
-                    candidates = [
-                        f for f in candidates
-                        if all(w in _get_name(f).lower() for w in file_filter_words)
-                    ]
-                removed = before - len(candidates)
-                if removed:
-                    self._line(f"文件筛选：移除 {removed} 个不匹配的文件")
 
         # 过滤完成后再判断重命名冲突，避免已排除的文件抢占目标名称。
         best: dict[str, tuple[tuple[float, float], int]] = {}
@@ -822,21 +841,17 @@ class DramaTaskExecutor:
             _dbg = _dbg_log.getLogger(__name__)
             _dbg.info("开始执行任务：%s", str(self.task_data.get("taskname") or ""))
             _dbg.info("  过滤规则：关键词=%d 文件筛选=%d 文件夹筛选=%s 文件夹排除=%s 文件夹优先=%s 时间=%s 大小=%s", len(_filter_words), len(_file_filter_words), folder_filter or "无", folder_exclude or "无", folder_priority or "无", _file_min_date or "无", _min_size or "无")
-            mr_ep = MagicRename(magic_regex=(self.task_data.get("magic_regex") if isinstance(self.task_data.get("magic_regex"), dict) else None))
-            mr_ep.set_taskname(str(self.task_data.get("taskname") or ""))
-            _pat = str(self.task_data.get("pattern") or "")
-            _rep = str(self.task_data.get("replace") or "")
-            if _pat and _rep:
-                try:
-                    _pat, _rep = mr_ep.magic_regex_conv(_pat, _rep)
-                    mr_ep._resolved_pattern = _pat
-                    mr_ep._resolved_replace = _rep
-                except Exception:
-                    mr_ep = None
-            else:
-                mr_ep = None
+            from app.extensions.runtime.rename_engine import build_rename_engine
+
             with SessionLocal() as _ep_db:
-                groups = fetch_share_file_list_grouped(_ep_db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode, folder_priority=folder_priority, folder_priority_mode=folder_priority_mode)
+                mr_ep = build_rename_engine(
+                    _ep_db,
+                    task_data=self.task_data,
+                    rule_requires_pattern=True,
+                )
+                if getattr(getattr(mr_ep, "plan", None), "fatal_reason", None):
+                    mr_ep = None
+                groups = fetch_share_file_list_grouped(_ep_db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode, folder_priority=folder_priority, folder_priority_mode=folder_priority_mode, filter_year=active_filter_year(addition))
             # 没有重命名规则时跳过连贯性检查
             if mr_ep is None:
                 self._line("未设置重命名规则，跳过连贯性检查")

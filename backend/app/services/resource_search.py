@@ -25,6 +25,67 @@ from app.services.invalid_share_links import list_invalid_shareurls
 
 
 SOURCE_KEYS = ("cloudsaver", "pansou")
+
+
+# 中文数字与“第”在标题里相当于分隔符，不视为“被包在别的词里”
+_CN_NUMERAL_CHARS = set("零一二三四五六七八九十百千万亿两")
+
+
+def _is_cjk(char: str) -> bool:
+    return bool(char) and "\u4e00" <= char <= "\u9fff"
+
+
+def _is_glue_char(char: str, *, right_side: bool) -> bool:
+    """该字符是否会把关键词“粘”在别的词里（普通中文才算，中文数字与右侧的“第”不算）。"""
+    if not _is_cjk(char):
+        return False
+    if char in _CN_NUMERAL_CHARS:
+        return False
+    if right_side and char == "第":
+        return False
+    return True
+
+
+def _token_boundary_ok(text: str, token: str) -> bool:
+    """关键词是否至少有一次“独立出现”（两侧都不是粘连中文）。"""
+    start = 0
+    found = False
+    while True:
+        index = text.find(token, start)
+        if index < 0:
+            break
+        found = True
+        left = text[index - 1] if index > 0 else ""
+        right = text[index + len(token)] if index + len(token) < len(text) else ""
+        if not _is_glue_char(left, right_side=False) and not _is_glue_char(right, right_side=True):
+            return True
+        start = index + 1
+    # 没出现过的词交给包含性判断处理，这里不拦
+    return not found
+
+
+def _keyword_boundary_ok(title: str, keyword: str) -> bool:
+    """标题里的搜索词是否独立出现；左右任意一边是普通中文即视为被包在别的词里。"""
+    text = str(title or "").lower()
+    tokens = [part for part in re.split(r"\s+", str(keyword or "").strip().lower()) if part]
+    if not tokens:
+        return True
+    return all(_token_boundary_ok(text, token) for token in tokens)
+
+
+def _title_contains_keyword(title: str, keyword: str) -> bool:
+    """标题是否命中搜索词：忽略大小写与空白，多个词要求全部命中。
+
+    上游搜索（pansou 等）会返回模糊相关结果，需要用它把“不带搜索词”的条目挡掉。
+    """
+    kw = str(keyword or "").strip()
+    if not kw:
+        return True
+    text = re.sub(r"\s+", "", str(title or "")).lower()
+    tokens = [re.sub(r"\s+", "", part).lower() for part in kw.split() if part.strip()]
+    if not tokens:
+        return True
+    return all(token in text for token in tokens)
 EXTERNAL_TIMEOUT = (15, 200)
 logger = logging.getLogger(__name__)
 
@@ -447,7 +508,8 @@ class PanSouClient:
 
         if not isinstance(search_results, list):
             return []
-        pattern = r"^(.*?)(?:[【\[]?(?:简介|介绍|描述)[】\]]?[:：]?)?(.*)$"
+        # 以第一处「简介/介绍/描述」标记切分标题与正文（原先的正则可选分组恒为空，标题永远取不到）
+        split_pattern = r"[【\[]?(?:简介|介绍|描述)[】\]]?[:：]?"
         out: list[dict[str, Any]] = []
         link_set: set[str] = set()
         for item in search_results:
@@ -460,9 +522,9 @@ class PanSouClient:
             tm = str(item.get("datetime") or "")
             if tm:
                 tm = _iso_to_cst(tm)
-            m = re.search(pattern, note, re.DOTALL)
-            title = (m.group(1) if m else note).strip()
-            content = (m.group(2) if m else "").strip()
+            parts = re.split(split_pattern, note, maxsplit=1)
+            title = (parts[0] or "").strip()
+            content = (parts[1] or "").strip() if len(parts) > 1 else ""
             link_set.add(url)
             out.append(
                 {
@@ -591,42 +653,6 @@ def get_quark_share_author(shareurl: str) -> str | None:
     except Exception as e:
         logger.warning(f"获取夸克分享者信息失败: {e}")
         return None
-
-
-def enrich_suggestions_with_authors(suggestions: list[dict[str, Any]], db: Session = None) -> list[dict[str, Any]]:
-    """为搜索结果添加分享者信息（仅夸克网盘）"""
-    from app.models.system_setting import SystemSetting
-    
-    # 获取优选分享者列表
-    preferred_sharers = []
-    if db:
-        preferred_setting = db.query(SystemSetting).filter(SystemSetting.key == "preferred_sharers").first()
-        if preferred_setting and preferred_setting.value.strip():
-            preferred_sharers = [
-                name.strip() 
-                for name in preferred_setting.value.split("|") 
-                if name.strip()
-            ]
-    
-    for item in suggestions:
-        shareurl = str(item.get("shareurl") or "").strip()
-        if not shareurl:
-            continue
-        
-        # 检测网盘类型
-        dt = AdapterRegistry.detect_drive_type(shareurl)
-        if dt != "quark":
-            continue
-        
-        # 获取分享者信息
-        author_name = get_quark_share_author(shareurl)
-        if author_name:
-            item["share_author_name"] = author_name
-            # 判断是否为优选分享者
-            if author_name in preferred_sharers:
-                item["is_preferred_sharer"] = True
-    
-    return suggestions
 
 
 def filter_blocked_sharers(db: Session, suggestions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -771,6 +797,18 @@ def fetch_task_suggestions(
         link_set.add(url)
         results.append(item)
 
+    # 上游会返回模糊相关结果：按搜索词把标题不含关键词的条目挡掉（RESOURCE_SEARCH_KEYWORD_FILTER=0 可关闭）
+    keyword_removed = 0
+    if os.getenv("RESOURCE_SEARCH_KEYWORD_FILTER", "1").strip() != "0":
+        before_count = len(results)
+        results = [
+            item
+            for item in results
+            if _title_contains_keyword(str(item.get("taskname") or item.get("content") or ""), keyword)
+            and _keyword_boundary_ok(str(item.get("taskname") or item.get("content") or ""), keyword)
+        ]
+        keyword_removed = before_count - len(results)
+
     token_updated = False
     if new_token:
         cfg_cs["token"] = new_token
@@ -813,6 +851,8 @@ def fetch_task_suggestions(
 
     message = None
     msg_parts: list[str] = []
+    if keyword_removed:
+        msg_parts.append(f"已过滤不含关键词：{keyword_removed} 条")
     if dt_filter:
         msg_parts.append(f"已限定网盘类型：{dt_filter}")
     elif removed_by_accounts:

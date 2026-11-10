@@ -167,10 +167,33 @@ def resolve_saved_latest_progress(
     # 加载重命名规则
     from app.extensions.runtime.magic_rename import MagicRename
     from app.services.drama_share_consecutive import _extract_episode
+    from app.services.tmdb_rename import TMDB_MODE, get_rename_mode
     task_pattern = str(getattr(task, "pattern", "") or "").strip()
     task_replace = str(getattr(task, "replace", "") or "").strip()
     mr: MagicRename | None = None
-    if task_pattern or task_replace:
+    addition_text = str(getattr(task, "addition_json", "") or "")
+    try:
+        addition_data = json.loads(addition_text) if addition_text else {}
+    except Exception:
+        addition_data = {}
+    if isinstance(addition_data, dict) and get_rename_mode(addition_data) == TMDB_MODE:
+        # TMDB 模式：读取同一份对照结果，保证进度集号一致
+        from app.extensions.runtime.rename_engine import build_rename_engine
+
+        mr = build_rename_engine(
+            db,
+            task_data={
+                "taskname": str(getattr(task, "taskname", "") or "").strip(),
+                "pattern": task_pattern,
+                "replace": task_replace,
+                "addition": addition_data,
+                "tmdb_id": int(getattr(task, "tmdb_id", 0) or 0),
+                "tmdb_media_type": str(getattr(task, "tmdb_media_type", "") or ""),
+            },
+        )
+        if getattr(getattr(mr, "plan", None), "fatal_reason", None):
+            mr = None
+    elif task_pattern or task_replace:
         try:
             mr = MagicRename()
             mr.taskname = str(getattr(task, "taskname", "") or "").strip()

@@ -19,6 +19,8 @@ class SharePreviewIn(BaseModel):
     filter_words: str | None = Field(default=None, max_length=1024)
     file_filter: str | None = Field(default=None, max_length=1024)
     file_filter_mode: str | None = Field(default=None, max_length=8)
+    year_filter_enabled: bool = True
+    filter_year: str | None = Field(default=None, pattern=r"^(?:(?:19|20)\d{2})?$")
     file_min_date: str | None = Field(default=None, max_length=16)
     dir_min_date: str | None = Field(default=None, max_length=16)
     folder_filter: str | None = Field(default=None, max_length=1024)
@@ -29,6 +31,8 @@ class SharePreviewIn(BaseModel):
     folder_priority_mode: str | None = Field(default=None, max_length=8)
     tmdb_id: int | None = None
     tmdb_media_type: str | None = Field(default=None, max_length=16)
+    rename_mode: str | None = Field(default=None, max_length=16)
+    task_uid: str | None = Field(default=None, max_length=64)
 
 
 class SharePreviewItemOut(BaseModel):
@@ -47,8 +51,10 @@ class SharePreviewItemOut(BaseModel):
     filtered_by_keyword: bool | None = None
     filtered_by_file_filter: bool | None = None
     filtered_by_file_date: bool | None = None
+    filtered_by_year: bool | None = None
     filtered_by_folder: str | None = None
     filtered_by_search: bool | None = None
+    rename_note: str | None = None
     priority_match: bool | None = None
     dir: bool | None = None
     include_items: int | None = None
@@ -60,6 +66,7 @@ class SharePreviewOut(BaseModel):
     pwd_id: str | None = None
     pdir_fid: str | None = None
     share_author_name: str | None = None
+    year_filter_reason: str | None = None
     items: list[SharePreviewItemOut] = []
 
 

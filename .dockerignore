@@ -18,3 +18,5 @@ docs
 .git
 frontend/node_modules
 frontend/dist
+**/*.bak
+.github_token

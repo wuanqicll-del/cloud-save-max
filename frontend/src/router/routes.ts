@@ -48,12 +48,6 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { title: '工作台', icon: 'HomeFilled', breadcrumb: false },
       },
       {
-        path: 'tasks/calendar',
-        name: 'DramaCalendar',
-        component: () => import('@/views/tasks/DramaCalendarView.vue'),
-        meta: { title: '追剧日历', icon: 'Calendar', permissions: [TASK_READ] },
-      },
-      {
         path: 'discover',
         name: 'MediaDiscover',
         component: () => import('@/views/media/MediaDiscoverView.vue'),

@@ -78,6 +78,8 @@ export type SharePreviewItem = {
   file_name_saved?: string | null
   filtered_by_size?: boolean | null
   filtered_by_keyword?: boolean | null
+  filtered_by_year?: boolean | null
+  rename_note?: string | null
   dir?: boolean | null
   include_items?: number | null
 }
@@ -88,6 +90,7 @@ export type SharePreviewResponse = {
   pwd_id?: string | null
   pdir_fid?: string | null
   share_author_name?: string | null
+  year_filter_reason?: string | null
   items: SharePreviewItem[]
 }
 

@@ -237,119 +237,6 @@ def _auto_resolve_latest_video(adapter, pwd_id: str, stoken: str, start_fid: str
     return current_fid, latest
 
 
-def fetch_share_file_list(
-    db: Session,
-    shareurl: str,
-    account_name: str | None = None,
-    max_depth: int = 3,
-    folder_filter: str = "",
-    folder_exclude: str = "",
-    folder_filter_mode: str = "",
-    folder_exclude_mode: str = "",
-) -> tuple[list[dict[str, Any]], bool]:
-    """获取分享链接的完整文件列表（只遍历前几层目录）"""
-    from app.extensions.runtime.account_manager import DatabaseAccountManager
-
-    drive_type = AdapterRegistry.detect_drive_type(shareurl)
-    if drive_type is None:
-        return [], False
-
-    if not account_name:
-        rows = (
-            db.execute(select(DriveAccount).where(DriveAccount.enabled.is_(True), DriveAccount.drive_type == drive_type).order_by(DriveAccount.id.asc()))
-            .scalars()
-            .all()
-        )
-        rows.sort(
-            key=lambda x: (
-                0 if bool(getattr(x, "is_default", False)) else 1,
-                0 if str(getattr(x, "runtime_status", "") or "") == "active" else 1,
-                int(getattr(x, "id", 0) or 0),
-            )
-        )
-        if not rows:
-            return [], False
-        account_name = str(getattr(rows[0], "name", "") or "").strip()
-
-    manager = DatabaseAccountManager(db, no_login=True)
-    task_payload = {"shareurl": shareurl, "account_name": account_name}
-    adapter = manager.get_adapter_for_task(task_payload, allow_inactive=True)
-    if adapter is None:
-        return [], False
-
-    if not bool(getattr(adapter, "is_active", False)):
-        try:
-            adapter.init()
-        except Exception:
-            return [], False
-
-    try:
-        pwd_id, passcode, extracted_pdir_fid, _ = adapter.extract_url(shareurl)
-    except Exception:
-        return [], False
-
-    if not pwd_id:
-        return [], False
-
-    try:
-        token_response = adapter.get_stoken(pwd_id, passcode or "")
-    except Exception:
-        return [], False
-
-    stoken = ((token_response or {}).get("data") or {}).get("stoken")
-    if not stoken:
-        return [], False
-
-    all_files: list[dict[str, Any]] = []
-    changed = False
-    folder_keywords = [kw.strip().lower() for kw in folder_filter.split("|") if kw.strip()] if folder_filter else []
-    folder_exclude_keywords = [kw.strip().lower() for kw in folder_exclude.split("|") if kw.strip()] if folder_exclude else []
-    folder_filter_is_any = str(folder_filter_mode or "all").strip().lower() == "any"
-    folder_exclude_is_all = str(folder_exclude_mode or "any").strip().lower() == "all"
-
-    def _collect_files(fid: str, depth: int, is_root: bool = True) -> None:
-        nonlocal changed
-        if depth > max_depth:
-            return
-        try:
-            detail = adapter.get_detail(pwd_id, stoken, fid)
-        except Exception:
-            return
-        raw_items = (((detail or {}).get("data") or {}).get("list")) or []
-        if raw_items:
-            changed = True
-        for item in raw_items:
-            if not isinstance(item, dict):
-                continue
-            name = str(_pick_name(item) or "").strip()
-            is_dir = bool(_bool_is_dir(item))
-            if is_dir:
-                sub_fid = str(_pick_fid(item) or "").strip()
-                if not sub_fid or sub_fid == fid:
-                    continue
-                name_lower = name.lower()
-                # 过滤：包含关键词的目录直接跳过，不进入
-                if folder_exclude_keywords:
-                    if folder_exclude_is_all:
-                        if all(kw in name_lower for kw in folder_exclude_keywords):
-                            continue
-                    else:
-                        if any(kw in name_lower for kw in folder_exclude_keywords):
-                            continue
-                # 递归进入子目录（无论是否匹配筛选词）
-                _collect_files(sub_fid, depth + 1, is_root=False)
-            else:
-                all_files.append({
-                    "file_name": name,
-                    "is_dir": False,
-                    "size": _pick_size(item),
-                    "updated_at": _pick_updated_at(item),
-                })
-
-    _collect_files(extracted_pdir_fid or "", 1, is_root=True)
-    return all_files, changed, extracted_pdir_fid
-
-
 def fetch_share_file_list_grouped(
     db: Session,
     shareurl: str,
@@ -361,6 +248,7 @@ def fetch_share_file_list_grouped(
     folder_exclude_mode: str = "",
     folder_priority: str = "",
     folder_priority_mode: str = "",
+    filter_year: str | None = None,
 ) -> list[tuple[list[dict[str, Any]], str, Any, str]]:
     """按子目录分组返回文件列表和目录标识。
     链接有 fid 时返回一组，无 fid 时每个子目录一组。"""
@@ -433,6 +321,8 @@ def fetch_share_file_list_grouped(
         else:
             return all(kw in name_lower for kw in folder_priority_keywords)
 
+    from app.services.year_filter import share_path_year_reason, year_allowed
+
     def _collect_from_dir(fid: str, dir_ts: Any = None, dir_name: str = "") -> list[tuple[list[dict[str, Any]], str, Any]]:
         """收集目录下的文件，按层级分组返回。
         当目录同时有文件和子目录时，文件单独一组，子目录各自递归成组。
@@ -440,13 +330,20 @@ def fetch_share_file_list_grouped(
 
         def _walk(f: str, depth: int, f_ts: Any, f_name: str = "", is_root: bool = True) -> list[tuple[list[dict[str, Any]], str, Any]]:
             groups: list[tuple[list[dict[str, Any]], str, Any]] = []
-            if depth > max_depth:
+            if depth > max_depth or not year_allowed(f_name, filter_year):
                 return groups
+            check_path = bool(filter_year and is_root and not f_name)
             try:
-                detail = adapter.get_detail(pwd_id, stoken, f)
+                detail = adapter.get_detail(pwd_id, stoken, f, fetch_share_full_path=1 if check_path else 0)
             except Exception:
                 return groups
-            raw_items = (((detail or {}).get("data") or {}).get("list")) or []
+            data = (detail or {}).get("data") or {}
+            if check_path:
+                reason = share_path_year_reason(data, f, filter_year)
+                if reason:
+                    logger.info("年份过滤：%s", reason)
+                    return groups
+            raw_items = data.get("list") or []
             local_files: list[dict[str, Any]] = []
             # 判断当前目录是否匹配筛选词
             collect_files = True
@@ -460,6 +357,8 @@ def fetch_share_file_list_grouped(
                 if not isinstance(item, dict):
                     continue
                 name = str(_pick_name(item) or "").strip()
+                if not year_allowed(name, filter_year):
+                    continue
                 is_dir = bool(_bool_is_dir(item))
                 if is_dir:
                     sub_fid = str(_pick_fid(item) or "").strip()

@@ -434,9 +434,6 @@ onMounted(() => {
             <router-link to="/tasks/drama">
               <el-button>追剧任务</el-button>
             </router-link>
-            <router-link to="/tasks/calendar">
-              <el-button>追剧日历</el-button>
-            </router-link>
             <el-button @click="trendDialogVisible = true">任务趋势</el-button>
           </div>
         </div>

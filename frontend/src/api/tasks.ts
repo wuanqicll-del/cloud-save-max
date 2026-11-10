@@ -3,14 +3,11 @@ import { useAuthStore } from '@/stores/auth'
 import type {
   DriveBrowseResponse,
   MagicRegexResponse,
-  SharePreviewBatchResponse,
   SharePreviewResponse,
   StopCompletedDramaTasksResponse,
-  TaskExecutionItem,
   TaskItem,
   TaskSchedulerSetting,
 } from '@/types/tasks'
-import { detectDriveTypeByUrl } from '@/utils/driveType'
 
 export async function fetchTasks() {
   const { data } = await http.get<TaskItem[]>('/tasks')
@@ -76,11 +73,6 @@ export async function setTaskStatus(taskId: number, enabled: boolean) {
   return data
 }
 
-export async function runTask(taskId: number) {
-  const { data } = await http.post<TaskExecutionItem>(`/tasks/${taskId}/run`)
-  return data
-}
-
 export async function deleteTask(taskId: number) {
   const { data } = await http.delete<{ ok: boolean }>(`/tasks/${taskId}`)
   return data
@@ -125,81 +117,13 @@ export async function previewShare(payload: {
   folder_priority_mode?: string | null
   tmdb_id?: number | null
   tmdb_media_type?: string | null
+  rename_mode?: string | null
+  year_filter_enabled?: boolean
+  filter_year?: string | null
+  task_uid?: string | null
 }) {
   const { data } = await http.post<SharePreviewResponse>('/tasks/share/preview', payload)
   return data
-}
-
-export async function previewShareBatch(payload: { shareurls: string[]; account_name?: string | null }) {
-  const accountName = payload.account_name ?? null
-  const shareurls = (payload.shareurls || []).map((x) => String(x || '').trim()).filter(Boolean)
-  if (!shareurls.length) return { items: [] }
-  const limit = 50
-
-  const postOnce = async (batch: string[]) => {
-    const { data } = await http.post<SharePreviewBatchResponse>(
-      '/tasks/share/preview-batch',
-      { shareurls: batch, account_name: accountName },
-      { headers: { 'X-Retryable': '1' } },
-    )
-    return data
-  }
-
-  const chunk = <T,>(items: T[], size: number) => {
-    const out: T[][] = []
-    for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
-    return out
-  }
-
-  const mergeByInputOrder = (items: SharePreviewBatchResponse['items']) => {
-    const mapping = new Map<string, (typeof items)[number]>()
-    for (const it of items || []) {
-      const url = String((it as any)?.shareurl || '').trim()
-      if (!url || mapping.has(url)) continue
-      mapping.set(url, it)
-    }
-    const ordered: (typeof items)[number][] = []
-    for (const url of shareurls) {
-      const it = mapping.get(url)
-      if (it) ordered.push(it)
-    }
-    return ordered
-  }
-
-  if (shareurls.length <= limit) {
-    const out = await postOnce(shareurls)
-    return { items: mergeByInputOrder(out.items || []) }
-  }
-
-  if (accountName) {
-    const merged: SharePreviewBatchResponse['items'] = []
-    for (const part of chunk(shareurls, limit)) {
-      const out = await postOnce(part)
-      merged.push(...(out.items || []))
-    }
-    return { items: mergeByInputOrder(merged) }
-  }
-
-  const groups = new Map<string, string[]>()
-  for (const url of shareurls) {
-    const dt = detectDriveTypeByUrl(url) || 'unknown'
-    const list = groups.get(dt) || []
-    list.push(url)
-    groups.set(dt, list)
-  }
-
-  const all = await Promise.all(
-    [...groups.values()].map(async (urls) => {
-      const merged: SharePreviewBatchResponse['items'] = []
-      for (const part of chunk(urls, limit)) {
-        const out = await postOnce(part)
-        merged.push(...(out.items || []))
-      }
-      return merged
-    }),
-  )
-
-  return { items: mergeByInputOrder(all.flat()) }
 }
 
 export async function browseDrive(payload: { dir_path: string; account_name?: string | null; shareurl?: string | null; max_items?: number }) {
@@ -216,17 +140,6 @@ export async function stopCompletedDramaTasks() {
   const { data } = await http.post<StopCompletedDramaTasksResponse>('/tasks/drama/stop-completed', null, {
     headers: { 'X-Silent-Toast': '1' },
   })
-  return data
-}
-
-export async function validateShareLinks(shareurls: string[]) {
-  const urls = (shareurls || []).map((x) => String(x || '').trim()).filter(Boolean)
-  if (!urls.length) return { items: [] }
-  const { data } = await http.post<{ items: Array<{ shareurl: string; ok: boolean; share_author_name?: string | null; message?: string | null }> }>(
-    '/tasks/share/validate',
-    { shareurls: urls },
-    { headers: { 'X-Retryable': '1' } },
-  )
   return data
 }
 

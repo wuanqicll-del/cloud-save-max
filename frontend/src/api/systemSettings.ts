@@ -22,17 +22,3 @@ export async function saveFilterRules(rules: FilterWordRule[]) {
   const { data } = await http.put<{ rules: FilterWordRule[] }>('/system-settings/filter-rules', { rules })
   return data.rules || []
 }
-// HDHive设置
-export interface HiveSettings {
-  hive_api_url: string
-}
-
-export async function fetchHiveSettings(): Promise<HiveSettings> {
-  const { data } = await http.get<HiveSettings>('/system-settings/hive')
-  return data
-}
-
-export async function updateHiveSettings(payload: HiveSettings): Promise<HiveSettings> {
-  const { data } = await http.patch<HiveSettings>('/system-settings/hive', payload)
-  return data
-}

@@ -18,6 +18,31 @@ from app.models.task_execution import TaskExecution
 logger = logging.getLogger(__name__)
 
 
+def _fill_task_filter_year(db: Session, *, addition: dict, tmdb_id: int | None, media_type: str | None) -> dict:
+    from app.services.year_filter import latest_tmdb_year, normalize_year, year_filter_enabled
+
+    result = dict(addition)
+    result.setdefault("year_filter_enabled", True)
+    value = str(result.get("filter_year") or "").strip()
+    if value:
+        if not normalize_year(value):
+            raise bad_request("TASK_FILTER_YEAR_INVALID", "过滤年份必须是 1900–2099 之间的四位年份")
+        result["filter_year"] = value
+        return result
+    if not year_filter_enabled(result) or not tmdb_id or media_type != "tv":
+        return result
+    try:
+        from app.services.tmdb_cache import get_tmdb_detail_cached
+
+        configured, detail, *_ = get_tmdb_detail_cached(db, media_type="tv", tmdb_id=int(tmdb_id))
+        year = latest_tmdb_year(detail) if configured and isinstance(detail, dict) else None
+        if year:
+            result["filter_year"] = year
+    except Exception:
+        logger.warning("TMDB 年份自动填充失败，保留空年份，等待手动设置")
+    return result
+
+
 def _normalize_uids(value: list[str] | None) -> list[str]:
     if not value:
         return []
@@ -132,6 +157,9 @@ def create_task(db: Session, **payload) -> Task:
             raise bad_request("TASK_TMDB_ID_INVALID", "无效的 TMDB ID")
         if tmdb_id <= 0:
             raise bad_request("TASK_TMDB_ID_INVALID", "无效的 TMDB ID")
+    addition = payload.get("addition") or {}
+    if payload.get("task_type") == "drama":
+        addition = _fill_task_filter_year(db, addition=addition, tmdb_id=tmdb_id, media_type=tmdb_media_type)
     task = Task(
         task_uid=payload.get('task_uid') or uuid.uuid4().hex,
         task_type=payload.get('task_type') or 'generic',
@@ -145,7 +173,7 @@ def create_task(db: Session, **payload) -> Task:
         tmdb_id=tmdb_id,
         tmdb_media_type=tmdb_media_type,
         enabled=payload.get('enabled', True),
-        addition_json=json.dumps(payload.get('addition') or {}, ensure_ascii=False),
+        addition_json=json.dumps(addition, ensure_ascii=False),
         extra_json=json.dumps(payload.get('extra') or {}, ensure_ascii=False),
     )
     db.add(task)
@@ -205,6 +233,13 @@ def update_task(db: Session, task_id: int, **payload) -> Task:
             continue
         if payload[key] is not None:
             setattr(task, key, payload[key])
+    if str(getattr(task, "task_type", "")) == "drama":
+        addition = payload.get("addition")
+        if addition is None:
+            addition = json.loads(task.addition_json or "{}")
+        payload["addition"] = _fill_task_filter_year(
+            db, addition=addition, tmdb_id=task.tmdb_id, media_type=task.tmdb_media_type,
+        )
     if payload.get('addition') is not None:
         task.addition_json = json.dumps(payload['addition'], ensure_ascii=False)
     if payload.get('extra') is not None:

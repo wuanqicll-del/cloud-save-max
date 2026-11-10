@@ -1099,8 +1099,12 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
         message = (token_response or {}).get("message") or "获取分享 token 失败"
         raise bad_request('TASK_SHARE_TOKEN_FAILED', str(message))
     pdir_fid = payload.pdir_fid if payload.pdir_fid is not None else (extracted_pdir_fid or "")
-    detail = adapter.get_detail(pwd_id, stoken, pdir_fid or "")
+    from app.services.year_filter import active_filter_year, share_path_year_reason, year_allowed
+
+    filter_year = active_filter_year({"year_filter_enabled": payload.year_filter_enabled, "filter_year": payload.filter_year})
+    detail = adapter.get_detail(pwd_id, stoken, pdir_fid or "", fetch_share_full_path=1 if filter_year else 0)
     data = (detail or {}).get("data") or {}
+    year_filter_reason = share_path_year_reason(data, pdir_fid or "", filter_year)
     if isinstance(data, dict):
         resolved = str(data.get("resolved_pdir_fid") or "").strip()
         if resolved:
@@ -1170,11 +1174,21 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
                 if name:
                     dir_filename_list.append(name)
 
-    from app.services.magic_regex import get_enabled_magic_regex_map
+    from app.extensions.runtime.rename_engine import build_rename_engine
 
-    mr = MagicRename(magic_regex=get_enabled_magic_regex_map(db))
-    mr.set_taskname(taskname)
-    pattern, replace = mr.magic_regex_conv(pattern, replace)
+    preview_task_data = {
+        "taskname": taskname,
+        "pattern": pattern,
+        "replace": replace,
+        "addition": {"rename_mode": str(payload.rename_mode or "").strip()},
+        "task_uid": str(payload.task_uid or "").strip(),
+        "tmdb_id": payload.tmdb_id,
+        "tmdb_media_type": payload.tmdb_media_type,
+    }
+    # 先只取规则：此时不传文件名，等过滤完成后再做 TMDB 对照
+    pattern_mr = build_rename_engine(db, task_data=preview_task_data, names=[])
+    pattern, replace = pattern_mr.magic_regex_conv(pattern, replace)
+    mr = pattern_mr
     try:
         compiled_search = re.compile(pattern, re.IGNORECASE) if pattern else None
     except re.error as e:
@@ -1231,6 +1245,11 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
             "file_name_re": None,
             "file_name_saved": None,
         }
+
+        if year_filter_reason or not year_allowed(file_name, filter_year):
+            item["filtered_by_year"] = True
+            preview_list.append(item)
+            continue
 
         if is_dir:
             # 文件夹筛选/过滤检查
@@ -1291,14 +1310,7 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
         search_re = compiled_search
         matched = (not search_re) or bool(search_re.search(file_name))
         if matched:
-            file_name_re = file_name
-            if not is_dir:
-                file_name_re = mr.sub(pattern, replace, file_name)
-            saved = mr.is_exists(file_name_re, dir_filename_list, ignore_ext and not is_dir) if dir_filename_list else None
-            if saved:
-                item["file_name_saved"] = saved
-            else:
-                item["file_name_re"] = file_name_re
+            item["_matched"] = True
         else:
             if search_re:
                 item["filtered_by_search"] = True
@@ -1378,6 +1390,49 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
                 except Exception as e:
                     _ft_dbg.info("[file_time_filter] error: %s", e)
 
+    # 过滤之后才做重命名对照：被过滤掉的文件不参与
+    rename_names: list[str] = []
+    for f in preview_list:
+        if f.get("dir") or not f.get("_matched"):
+            continue
+        if f.get("filtered_by_size") or f.get("filtered_by_keyword") or f.get("filtered_by_file_filter") or f.get("filtered_by_file_date"):
+            continue
+        name = str(f.get("file_name") or "")
+        if name:
+            rename_names.append(name)
+
+    if rename_names:
+        mr = build_rename_engine(db, task_data=preview_task_data, names=rename_names)
+        pattern, replace = mr.magic_regex_conv(pattern, replace)
+        fatal_reason = getattr(getattr(mr, "plan", None), "fatal_reason", None)
+        if fatal_reason:
+            for f in preview_list:
+                if not f.get("dir") and f.get("_matched"):
+                    f["rename_note"] = str(fatal_reason)
+
+    for f in preview_list:
+        if f.get("dir") or not f.get("_matched"):
+            continue
+        if f.get("filtered_by_size") or f.get("filtered_by_keyword") or f.get("filtered_by_file_filter") or f.get("filtered_by_file_date"):
+            continue
+        if f.get("rename_note"):
+            continue
+        name = str(f.get("file_name") or "")
+        file_name_re = mr.sub(pattern, replace, name)
+        if not file_name_re:
+            reason = getattr(mr, "blocked_reason", lambda _n: None)(name)
+            f["rename_note"] = reason or "无法对照 TMDB 集号"
+            continue
+        if file_name_re != name:
+            saved = mr.is_exists(file_name_re, dir_filename_list, ignore_ext) if dir_filename_list else None
+            if saved:
+                f["file_name_saved"] = saved
+                continue
+            f["file_name_re"] = file_name_re
+        elif getattr(mr, "plan", None) is not None:
+            # TMDB 模式下未改名的（附加内容等）标注一下，规则模式保持原样
+            f["rename_note"] = "附加内容，保持原名"
+
     # 过滤完成后再判断重命名冲突，避免已被关键词/文件规则排除的文件参与冲突。
     best: dict[str, tuple[tuple[float, float], int]] = {}
     for idx, f in enumerate(preview_list):
@@ -1421,6 +1476,7 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
                 filtered_by_keyword=bool(it.get("filtered_by_keyword")) if it.get("filtered_by_keyword") else None,
                 filtered_by_file_filter=bool(it.get("filtered_by_file_filter")) if it.get("filtered_by_file_filter") else None,
                 filtered_by_file_date=bool(it.get("filtered_by_file_date")) if it.get("filtered_by_file_date") else None,
+                filtered_by_year=True if it.get("filtered_by_year") else None,
                 filtered_by_folder=it.get("filtered_by_folder") or None,
                 filtered_by_search=bool(it.get("filtered_by_search")) if it.get("filtered_by_search") else None,
                 priority_match=bool(it.get("priority_match")) if it.get("priority_match") else None,
@@ -1434,6 +1490,7 @@ def post_share_preview(payload: SharePreviewIn, db: Session = Depends(get_db)):
         pwd_id=str(pwd_id),
         pdir_fid=str(pdir_fid or ""),
         share_author_name=share_author_name or None,
+        year_filter_reason=year_filter_reason,
         items=items,
     )
 

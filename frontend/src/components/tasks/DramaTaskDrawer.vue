@@ -9,7 +9,6 @@ import { fetchSharerFilterSettings } from '@/api/systemSettings'
 import { fetchTaskTemplates, createTaskTemplate } from '@/api/taskTemplates'
 import type { TaskTemplate } from '@/api/taskTemplates'
 import type { DriveAccountItem, PluginItem } from '@/types/extensions'
-import type { HiveResource } from '@/api/hive'
 import type { TMDBBrief } from '@/types/media'
 import type { TaskSuggestionItem } from '@/types/resourceSearch'
 import type { SyncTaskItem } from '@/types/syncTasks'
@@ -55,8 +54,6 @@ const props = withDefaults(
     presetTaskname?: string
     presetTmdb?: { tmdb_id: number; tmdb_media_type: 'movie' | 'tv' } | null
     autoDeepSuggest?: boolean
-    isHiveTask?: boolean
-    hiveResources?: HiveResource[]
   }>(),
   {
     task: null,
@@ -65,8 +62,6 @@ const props = withDefaults(
     presetTaskname: '',
     presetTmdb: null,
     autoDeepSuggest: false,
-    isHiveTask: false,
-    hiveResources: () => [],
   },
 )
 
@@ -81,6 +76,8 @@ function clone<T>(value: T): T {
 }
 
 const isEditing = computed(() => Boolean(props.task?.id))
+// TMDB 重命名不使用匹配表达式，界面上置灰
+const isTmdbRename = computed(() => (state.addition as any)?.rename_mode === 'tmdb_rename')
 
 const state = reactive({
   taskname: '',
@@ -101,7 +98,6 @@ const state = reactive({
   extra: {} as Record<string, any>,
 })
 
-const selectedHiveResource = ref<HiveResource | null>(null)
 const manualRunweekBackup = ref([] as number[])
 const autoRunweekDays = ref([] as number[])
 
@@ -215,8 +211,6 @@ const hasRenameRule = computed(() => {
   return !!(String(state.pattern || '').trim() && String(state.replace || '').trim())
 })
 
-const showAutoUpdateToggle = computed(() => !props.isHiveTask)
-
 const unavailableSelectedAccount = computed(() => {
   if (!state.account_choice) return null
   const name = String(state.account_choice || '').trim()
@@ -301,6 +295,8 @@ const sharePicker = reactive({
   items: [] as SharePreviewItem[],
   sharerName: '' as string,
   isPreferredSharer: false,
+  // Set when the backend blocks the currently opened directory (or cannot resolve a year for it).
+  yearFilterReason: '' as string,
 })
 
 const shareAuto = reactive({
@@ -569,11 +565,162 @@ async function runTmdbLinkSearch() {
   }
 }
 
+// 取“最新一季第一集的播出日”：优先集表，其次该季首播，最后整剧首播。
+function latestSeasonAirDate(detail: any): string {
+  const seasonsFull = Array.isArray(detail?.seasons_full) ? detail.seasons_full : []
+  const seasonsRaw = Array.isArray(detail?.seasons) ? detail.seasons : []
+  const byNewestSeason = (list: any[]) => list
+    .filter((s: any) => s && typeof s === 'object' && Number(s.season_number) > 0)
+    .sort((a: any, b: any) => Number(b.season_number) - Number(a.season_number))
+  for (const season of byNewestSeason(seasonsFull)) {
+    const episodes = Array.isArray(season.episodes) ? [...season.episodes] : []
+    episodes.sort((a: any, b: any) => Number(a?.episode_number || 0) - Number(b?.episode_number || 0))
+    for (const ep of episodes) {
+      const d = String(ep?.air_date || '').trim()
+      if (d) return d
+    }
+  }
+  for (const season of byNewestSeason(seasonsRaw)) {
+    const d = String(season?.air_date || '').trim()
+    if (d) return d
+  }
+  return String(detail?.first_air_date || '').trim()
+}
+
+function localToday(): string {
+  const d = new Date()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${month}-${day}`
+}
+
+function airedDate(value: any, today: string): string {
+  const raw = String(value || '').trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return ''
+  // Reject calendar-invalid dates (e.g. 2025-02-30) so they never reach the backend.
+  const [year, month, day] = raw.split('-').map((x) => Number(x))
+  const parsed = new Date(year, month - 1, day)
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) return ''
+  return raw <= today ? raw : ''
+}
+
+// Year of the newest *aired* episode of the newest regular season (season 0 = specials ignored).
+// Falls back to regular seasons' air_date, never to the show's first_air_date (that is the series debut year).
+function tmdbLatestAiredYear(detail: any): string {
+  const today = localToday()
+  const candidates: Array<{ season: number; episode: number; date: string }> = []
+  const seasonsFull = Array.isArray(detail?.seasons_full) ? detail.seasons_full : []
+  for (const season of seasonsFull) {
+    if (!season || typeof season !== 'object') continue
+    const seasonNumber = Number(season.season_number) || 0
+    if (seasonNumber <= 0) continue
+    const episodes = Array.isArray(season.episodes) ? season.episodes : []
+    for (const ep of episodes) {
+      if (!ep || typeof ep !== 'object') continue
+      const episodeNumber = Number(ep.episode_number) || 0
+      if (episodeNumber <= 0) continue
+      const date = airedDate(ep.air_date, today)
+      if (!date) continue
+      candidates.push({ season: seasonNumber, episode: episodeNumber, date })
+    }
+  }
+  const last = detail?.last_episode_to_air
+  if (last && typeof last === 'object') {
+    const seasonNumber = Number(last.season_number) || 0
+    const episodeNumber = Number(last.episode_number) || 0
+    const date = airedDate(last.air_date, today)
+    if (seasonNumber > 0 && episodeNumber > 0 && date) candidates.push({ season: seasonNumber, episode: episodeNumber, date })
+  }
+  if (candidates.length) {
+    candidates.sort((a, b) => b.season - a.season || b.episode - a.episode || b.date.localeCompare(a.date))
+    return candidates[0].date.slice(0, 4)
+  }
+
+  const seasonsRaw = Array.isArray(detail?.seasons) ? detail.seasons : []
+  const airedSeasons = seasonsRaw
+    .filter((s: any) => s && typeof s === 'object' && (Number(s.season_number) || 0) > 0)
+    .map((s: any) => ({ season: Number(s.season_number) || 0, date: airedDate(s.air_date, today) }))
+    .filter((s: any) => s.date)
+    .sort((a: any, b: any) => b.season - a.season)
+  return airedSeasons.length ? airedSeasons[0].date.slice(0, 4) : ''
+}
+
+// Preview must never send a partial or out-of-contract year: only a 19xx/20xx value is forwarded,
+// and only while the switch is on (an off switch restores the unfiltered behaviour).
+function previewYearValue(): string | null {
+  const add: any = state.addition || {}
+  if (add.year_filter_enabled === false) return null
+  const year = String(add.filter_year ?? '').trim()
+  return /^(?:19|20)\d{2}$/.test(year) ? year : null
+}
+
+// Only fills an empty target year: a manual or already-resolved value is never overwritten, and a
+// late async response must still match the current TMDB link and an open drawer.
+function fillFilterYearFromDetail(detail: any, tmdbId: number, mediaType: string) {
+  if (!props.modelValue) return
+  if (String(mediaType || '').toLowerCase() !== 'tv') return
+  if (Number(state.tmdb_id) !== Number(tmdbId)) return
+  if (String(state.tmdb_media_type || '').toLowerCase() !== 'tv') return
+  const add: any = state.addition || {}
+  if (add.year_filter_enabled === false) return
+  if (String(add.filter_year ?? '').trim()) return
+  const year = tmdbLatestAiredYear(detail)
+  if (!year) return
+  add.filter_year = year
+  ElMessage.success(`已按 TMDB 最新已播集填充目标年份：${year}`)
+}
+
+async function fillFilterYearForLinkedTask(id: number) {
+  try {
+    const res: any = await fetchTMDBDetail('tv', id)
+    fillFilterYearFromDetail(res?.data || {}, id, 'tv')
+  } catch {
+    return
+  }
+}
+
+// 只填空字段：已有值（含执行期“自动更新文件时间过滤”写入的值）一律不覆盖，等于只设置一次。
+function applyTmdbAirDates(detail: any) {
+  const date = latestSeasonAirDate(detail)
+  if (!date) return
+  const add: any = state.addition || {}
+  const filled: string[] = []
+  if (!String(add.search_date_from || '').trim()) {
+    add.search_date_from = date
+    filled.push('搜索起始日期')
+  }
+  if (!String(add.file_min_date || '').trim()) {
+    add.file_min_date = date
+    filled.push('文件时间过滤')
+  }
+  if (!String(add.dir_min_date || '').trim()) {
+    add.dir_min_date = date
+    filled.push('文件夹时间过滤')
+  }
+  if (filled.length > 0) {
+    ElMessage.success(`已按 TMDB 播出时间（${date}）填充：${filled.join('、')}`)
+  }
+}
+
+// 从影视发现页带着 TMDB 新建任务时，详情不会主动拉，这里补一次
+async function applyTmdbAirDatesForPreset(id: number) {
+  try {
+    const res = await fetchTMDBDetail('tv', id)
+    if (Number(state.tmdb_id) !== id || !props.modelValue) return
+    const detail = res?.data || {}
+    applyTmdbAirDates(detail)
+    fillFilterYearFromDetail(detail, id, 'tv')
+  } catch {
+    return
+  }
+}
+
 async function confirmTmdbLink() {
   const id = Number(tmdbLink.selectedId) || 0
   if (id <= 0) return
+  const linkedType = tmdbLink.type
   state.tmdb_id = id
-  state.tmdb_media_type = tmdbLink.type
+  state.tmdb_media_type = linkedType
   if (tmdbLink.type === 'tv' && tmdbLink.configured && state.runweek_mode === 'auto') {
     await applyRunweekFromTmdbUpdateWeekdays(id, 'tv')
   }
@@ -590,6 +737,8 @@ async function confirmTmdbLink() {
         state.replace = String(state.replace).replace(/\{SXX\}/g, `S${String(sn).padStart(2, '0')}`)
       }
     }
+    applyTmdbAirDates(detail)
+    fillFilterYearFromDetail(detail, id, linkedType)
   }
   tmdbLink.visible = false
 }
@@ -1347,14 +1496,13 @@ function syncState() {
     state.tmdb_id = props.task.tmdb_id ?? null
     state.tmdb_media_type = props.task.tmdb_media_type ?? null
     state.addition = clone(props.task.addition || {})
+    // 命名模式默认“按规则命名”（空值），显式写回以便单选按钮默认选中
+    ;(state.addition as any).rename_mode = (state.addition as any).rename_mode === 'tmdb_rename' ? 'tmdb_rename' : ''
+    // Year filter defaults to on; only an explicit false turns it off.
+    ;(state.addition as any).year_filter_enabled = (state.addition as any).year_filter_enabled !== false
+    const storedYear = String((state.addition as any).filter_year ?? '').trim()
+    ;(state.addition as any).filter_year = /^\d{4}$/.test(storedYear) ? storedYear : ''
     state.extra = clone(props.task.extra || {})
-    // 初始化HDHive资源选择器
-    if (props.task.extra && props.task.extra.hive_item_id && props.hiveResources) {
-      const hiveItem = props.hiveResources.find(r => r.item_id === props.task!.extra.hive_item_id)
-      if (hiveItem) {
-        selectedHiveResource.value = hiveItem
-      }
-    }
     state.auto_update_shareurl =
       detectDriveTypeByUrl(String(props.task.shareurl || '').trim())
         ? Boolean((props.task.extra as any)?.auto_update_shareurl ?? (props.task.extra as any)?.auto_update_115_shareurl ?? true)
@@ -1372,7 +1520,10 @@ function syncState() {
     state.ignore_extension = true
     state.tmdb_id = props.presetTmdb?.tmdb_id ?? null
     state.tmdb_media_type = props.presetTmdb?.tmdb_media_type ?? null
-    state.addition = { auto_update_file_min_date: '1' }
+    state.addition = { auto_update_file_min_date: '1', rename_mode: '', year_filter_enabled: true, filter_year: '' }
+    if (String(state.tmdb_media_type || '').toLowerCase() === 'tv' && Number(state.tmdb_id) > 0) {
+      void applyTmdbAirDatesForPreset(Number(state.tmdb_id))
+    }
     state.extra = {}
   }
 
@@ -1392,6 +1543,13 @@ function syncState() {
   if (!additionValue || typeof additionValue !== 'object' || Array.isArray(additionValue)) {
     state.addition = {}
   }
+  if ((state.addition as any).rename_mode !== 'tmdb_rename') {
+    ;(state.addition as any).rename_mode = ''
+  }
+  // Non-boolean / missing values fall back to the enabled default; an explicit false is kept.
+  ;(state.addition as any).year_filter_enabled = (state.addition as any).year_filter_enabled !== false
+  const normalizedYear = String((state.addition as any).filter_year ?? '').trim()
+  ;(state.addition as any).filter_year = /^\d{4}$/.test(normalizedYear) ? normalizedYear : ''
   for (const plugin of props.plugins) {
     const key = plugin.plugin_key
     const defaultCfg = clone(plugin.default_task_config || {})
@@ -1452,6 +1610,18 @@ watch(
         applyRunweekFromTmdbUpdateWeekdays(id, 'tv')
       }
     }
+    // Fill the target year once for an already-linked TMDB drama whose task has no year yet.
+    // A disabled year filter must not trigger an extra TMDB request.
+    if (
+      isEditing.value &&
+      (state.addition as any)?.year_filter_enabled !== false &&
+      Number(state.tmdb_id) > 0 &&
+      String(state.tmdb_media_type || '').toLowerCase() === 'tv'
+    ) {
+      if (!String((state.addition as any)?.filter_year ?? '').trim()) {
+        void fillFilterYearForLinkedTask(Number(state.tmdb_id))
+      }
+    }
     if (props.autoDeepSuggest && !isEditing.value) {
       nextTick(() => {
         searchSuggestions(1)
@@ -1506,51 +1676,18 @@ function closeDrawer() {
   emit('update:modelValue', false)
 }
 
-
-function onHiveResourceChange(resource: HiveResource | null) {
-  if (resource) {
-    // 自动填充任务名称
-    state.taskname = resource.title || ''
-    // 设置初始shareurl（虽然执行时会从HDHive获取，但这里还是设置一个）
-    state.shareurl = resource.full_url || ''
-    // 设置TMDB信息
-    if (resource.tmdb_id) {
-      state.tmdb_id = parseInt(resource.tmdb_id) || null
-    }
-    if (resource.media_type) {
-      state.tmdb_media_type = resource.media_type
-    }
-    // 存储hive_item_id到extra
-    state.extra.hive_item_id = resource.item_id
-    // 自动开启自动换链
-    state.auto_update_shareurl = true
-  } else {
-    state.extra.hive_item_id = null
-  }
-}
-
 function buildExtraPayload() {
   const extra = clone(state.extra || {})
   extra.runweek_mode = state.runweek_mode
   extra.runweek = state.runweek_mode === 'auto' ? [] : clone(state.runweek || [])
-  // 影巢任务强制开启自动换链
-  if (props.isHiveTask && state.extra.hive_item_id) {
-    extra.auto_update_shareurl = true
-    extra.hive_item_id = state.extra.hive_item_id
-  } else {
-    // 没有重命名规则时强制关闭自动换链
-    extra.auto_update_shareurl = (showAutoUpdateToggle.value && hasRenameRule.value) ? Boolean(state.auto_update_shareurl) : false
-  }
+  extra.auto_update_shareurl = hasRenameRule.value ? Boolean(state.auto_update_shareurl) : false
   return extra
 }
 
 function validateBeforeSubmit() {
   const missing: string[] = []
   if (!String(state.taskname || '').trim()) missing.push('任务名称')
-  // 影巢任务不需要验证分享链接
-  if (!props.isHiveTask && !String(state.shareurl || '').trim()) missing.push('分享链接')
-  // 影巢任务需要选择HDHive资源
-  if (props.isHiveTask && !state.extra.hive_item_id) missing.push('HDHive资源')
+  if (!String(state.shareurl || '').trim()) missing.push('分享链接')
   if (!String(state.savepath || '').trim()) missing.push('保存路径（savepath）')
   if (missing.length) {
     ElMessageBox.alert(`请先填写：${missing.join('、')}`, '提示', {
@@ -1558,6 +1695,17 @@ function validateBeforeSubmit() {
       confirmButtonText: '知道了',
     })
     return false
+  }
+  const filterYear = String((state.addition as any).filter_year ?? '').trim()
+  if (filterYear) {
+    const yearNumber = Number(filterYear)
+    if (!/^\d{4}$/.test(filterYear) || yearNumber < 1900 || yearNumber > 2099) {
+      ElMessageBox.alert('年份筛选的目标年份必须留空，或填写 1900–2099 的四位年份', '提示', {
+        type: 'warning',
+        confirmButtonText: '知道了',
+      })
+      return false
+    }
   }
   return true
 }
@@ -1775,6 +1923,7 @@ async function openSharePicker(overrideUrl?: string) {
   sharePicker.shareurl = url
   sharePicker.sharerName = ''
   sharePicker.isPreferredSharer = false
+  sharePicker.yearFilterReason = ''
   const fid = extractShareFid(sharePicker.shareurl)
   sharePicker.stack = fid ? [{ name: '当前目录', pdir_fid: fid }] : []
   await refreshSharePicker(null)
@@ -1782,6 +1931,7 @@ async function openSharePicker(overrideUrl?: string) {
 
 async function refreshSharePicker(pdir_fid: string | null) {
   sharePicker.loading = true
+  sharePicker.yearFilterReason = ''
   try {
     const account_name = state.account_choice || null
     const data = await previewShare({
@@ -1808,8 +1958,13 @@ async function refreshSharePicker(pdir_fid: string | null) {
       folder_priority_mode: state.addition?.folder_priority_mode || undefined,
       tmdb_id: state.tmdb_id ?? undefined,
       tmdb_media_type: state.tmdb_media_type || undefined,
+      rename_mode: (state.addition as any)?.rename_mode || undefined,
+      year_filter_enabled: (state.addition as any)?.year_filter_enabled !== false,
+      filter_year: previewYearValue(),
+      task_uid: props.task?.task_uid || undefined,
     })
     sharePicker.pdir_fid = data.pdir_fid || null
+    sharePicker.yearFilterReason = String(data.year_filter_reason || '').trim()
     sharePicker.items = data.items || []
     if (data.share_author_name) {
       sharePicker.sharerName = data.share_author_name
@@ -1822,6 +1977,11 @@ async function refreshSharePicker(pdir_fid: string | null) {
 
 function enterShareDir(item: SharePreviewItem) {
   if (!item.is_dir) return
+  // Year-filtered directories must not be entered; the backend also blocks direct links.
+  if (item.filtered_by_year) {
+    ElMessage.warning('该文件夹年份与目标年份不符，已按年份过滤，无法进入')
+    return
+  }
   sharePicker.stack.push({ name: item.name, pdir_fid: item.fid })
   sharePicker.shareurl = getShareurl(sharePicker.root_shareurl, { fid: item.fid, name: item.name })
   refreshSharePicker(item.fid)
@@ -1841,6 +2001,11 @@ function onShareRowClick(row: SharePreviewItem) {
 }
 
 function pickShareFolderCurrent() {
+  // The opened directory itself is year-filtered, so its contents are not trustworthy.
+  if (sharePicker.yearFilterReason) {
+    ElMessage.warning(sharePicker.yearFilterReason)
+    return
+  }
   const current = sharePicker.stack.at(-1)
   if (current?.pdir_fid && current?.name !== '当前目录') {
     state.shareurl = getShareurl(sharePicker.root_shareurl, { fid: current.pdir_fid, name: current.name })
@@ -1945,13 +2110,24 @@ async function autoResolveShareFolder(shareurl: string, runId: number) {
   for (let depth = 0; depth < 12; depth += 1) {
     if (!props.modelValue) return
     if (runId !== shareAuto.runId) return
-    const data = await previewShare({ shareurl: current, account_name, max_items: 50 })
+    const data = await previewShare({
+      shareurl: current,
+      account_name,
+      max_items: 50,
+      year_filter_enabled: (state.addition as any)?.year_filter_enabled !== false,
+      filter_year: previewYearValue(),
+    })
     if (!props.modelValue) return
     if (runId !== shareAuto.runId) return
+    if (data.year_filter_reason) {
+      ElMessage.warning(data.year_filter_reason)
+      return
+    }
     const items = (Array.isArray(data.items) ? data.items : []) as SharePreviewItem[]
 
-    const files = items.filter((x) => x && !x.is_dir)
-    const dirs = items.filter((x) => x && x.is_dir)
+    const files = items.filter((x) => x && !x.is_dir && !x.filtered_by_year)
+    // Year-excluded directories are skipped so the auto-resolve never lands inside them.
+    const dirs = items.filter((x) => x && x.is_dir && !x.filtered_by_year)
     if (files.some((f) => isVideoFile(f.name || f.file_name))) {
       break
     }
@@ -2089,6 +2265,8 @@ function applyTemplate(id: number | null) {
   if (config.folder_filter_mode !== undefined) state.addition.folder_filter_mode = config.folder_filter_mode
   if (config.folder_exclude_mode !== undefined) state.addition.folder_exclude_mode = config.folder_exclude_mode
   if (config.file_filter_mode !== undefined) state.addition.file_filter_mode = config.file_filter_mode
+  // Templates only carry the year-filter switch (never a per-drama year).
+  if (config.year_filter_enabled !== undefined) state.addition.year_filter_enabled = config.year_filter_enabled !== false
   // 关键词过滤：如果有关联预设，选中预设并填充关键词
   if (config.filter_rule_name) {
     state.addition.filter_rule_name = config.filter_rule_name
@@ -2097,6 +2275,7 @@ function applyTemplate(id: number | null) {
     state.addition.filter_words = config.filter_words
   }
   // 重命名设置：如果 pattern 是 key（以 $ 开头），选中内置规则；否则直接填入
+  if (config.rename_mode !== undefined) state.addition.rename_mode = String(config.rename_mode || '')
   if (config.pattern !== undefined) {
     if (config.pattern.startsWith('$')) {
       magicRegex.selectedKey = config.pattern
@@ -2135,6 +2314,8 @@ async function submitSaveTemplate() {
   }
   if (state.addition.file_filter) config.file_filter = state.addition.file_filter
   if (state.addition.min_size) config.min_size = state.addition.min_size
+  // 重命名：命名模式（空值＝按规则命名），显式保存以便模板决定模式
+  config.rename_mode = state.addition.rename_mode === 'tmdb_rename' ? 'tmdb_rename' : ''
   // 重命名：如果选中了内置规则，保存 key；否则保存实际内容
   if (magicRegex.selectedKey) {
     config.pattern = magicRegex.selectedKey
@@ -2148,6 +2329,8 @@ async function submitSaveTemplate() {
   if (state.addition.folder_filter_mode) config.folder_filter_mode = state.addition.folder_filter_mode
   if (state.addition.folder_exclude_mode) config.folder_exclude_mode = state.addition.folder_exclude_mode
   if (state.addition.file_filter_mode) config.file_filter_mode = state.addition.file_filter_mode
+  // Templates only carry the year-filter switch (never a per-drama year).
+  config.year_filter_enabled = state.addition.year_filter_enabled !== false
   try {
     await createTaskTemplate({ name: saveTemplateName.value.trim(), config })
     ElMessage.success('模板已保存')
@@ -2191,7 +2374,7 @@ async function submitSaveTemplate() {
         </el-form-item>
         <el-form-item label="任务名称">
           <el-input v-model="state.taskname" placeholder="例如：某电视剧" @focus="showSuggestions" @blur="hideSuggestionsLater">
-            <template #append v-if="!isHiveTask">
+            <template #append>
               <el-button
                 :disabled="sanitizeSuggestionQuery(state.taskname).length < 2"
                 :loading="taskSuggestions.loading && taskSuggestions.deep === 1"
@@ -2266,49 +2449,21 @@ async function submitSaveTemplate() {
             <el-button size="small" type="danger" plain :disabled="!state.tmdb_id" @click="clearTmdbLink">解除关联</el-button>
           </div>
         </el-form-item>
-        <!-- HDHive资源选择器 -->
-        <el-form-item v-if="isHiveTask" label="关联HDHive资源">
-          <el-select 
-            v-model="selectedHiveResource" 
-            placeholder="选择HDHive资源" 
-            style="width: 100%"
-            @change="onHiveResourceChange"
-          >
-            <el-option 
-              v-for="item in hiveResources" 
-              :key="item.item_id" 
-              :label="item.title + (item.uploader_name ? ' - ' + item.uploader_name : '')" 
-              :value="item"
-            >
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>{{ item.title }}</span>
-                <span style="color: #8492a6; font-size: 12px;">{{ item.uploader_name }}</span>
-              </div>
-            </el-option>
-          </el-select>
-          <div class="drawer-form__hint">从HDHive片单中选择资源，执行时会自动获取最新分享链接</div>
-          <div v-if="selectedHiveResource" class="drawer-form__hint" style="color: var(--el-color-success);">
-            ✓ 已选择: {{ selectedHiveResource.title }} | 状态: {{ selectedHiveResource.validate_status || '未知' }}
-          </div>
-        </el-form-item>
-        
-        <!-- 分享链接输入框（影巢任务用于预览，普通任务用于输入） -->
         <el-form-item label="分享链接">
-          <el-input v-model="state.shareurl" placeholder="https://..." :disabled="isHiveTask && !state.shareurl">
+          <el-input v-model="state.shareurl" placeholder="https://...">
             <template #append>
               <el-button :disabled="!state.shareurl" @click="openSharePicker()">选择文件夹</el-button>
             </template>
           </el-input>
-          <div v-if="isHiveTask" class="drawer-form__hint">选择HDHive资源后会自动填充，也可点击"选择文件夹"预览内容</div>
         </el-form-item>
-        <el-form-item v-if="!isHiveTask" label="使用模板">
+        <el-form-item label="使用模板">
           <el-select v-model="selectedTemplateId" placeholder="选择模板自动填充配置" clearable style="width: 100%" @change="applyTemplate">
             <el-option v-for="t in templateList" :key="t.id" :label="t.name" :value="t.id" />
           </el-select>
         </el-form-item>
       </div>
 
-      <div v-if="!isHiveTask" class="drawer-form__section">
+      <div class="drawer-form__section">
         <div class="drawer-form__section-title">搜索筛选</div>
         <el-form-item label="搜索过滤词">
           <el-input v-model="state.addition.search_exclude" placeholder="可选，用 | 分隔，如：预告|花絮">
@@ -2336,7 +2491,7 @@ async function submitSaveTemplate() {
           <el-switch v-model="state.addition.show_blocked" active-text="开启" inactive-text="关闭" />
           <div class="drawer-form__hint">开启后搜索结果和自动换链候选中会包含被屏蔽分享者的内容</div>
         </el-form-item>
-        <el-form-item v-if="showAutoUpdateToggle" label="自动换链">
+        <el-form-item label="自动换链">
           <el-switch v-model="state.auto_update_shareurl" :disabled="!hasRenameRule" active-text="开启" inactive-text="关闭" />
           <div class="drawer-form__hint">任务执行后如果当前进度小于最新进度会寻找拥有更高进度的链接替换转存</div>
           <div v-if="!hasRenameRule" class="drawer-form__hint" style="color: var(--el-color-warning);">请先设置匹配表达式和替换表达式</div>
@@ -2384,6 +2539,20 @@ async function submitSaveTemplate() {
           </div>
           <div class="drawer-form__hint">转存到影视最新集数时，自动将该文件的修改时间写入上方日期，后续只接受更新的文件</div>
         </el-form-item>
+        <el-form-item label="年份筛选">
+          <el-switch v-model="state.addition.year_filter_enabled" active-text="开启" inactive-text="关闭" />
+          <el-input
+            v-model="state.addition.filter_year"
+            placeholder="目标年份，如 2026（可留空）"
+            maxlength="4"
+            style="margin-top: 6px"
+            clearable
+          />
+          <div class="drawer-form__hint">
+            对文件和文件夹都生效：名称中没有年份的放行，只放行目标年份（1900–2099，可手动修改），其他年份或多个不同年份排除；
+            取不到年份时暂不筛选。关闭开关仅停止筛选，已填年份会保留。
+          </div>
+        </el-form-item>
       </div>
 
       <div class="drawer-form__section">
@@ -2418,6 +2587,20 @@ async function submitSaveTemplate() {
 
       <div class="drawer-form__section">
         <div class="drawer-form__section-title">重命名设置</div>
+        <el-form-item label="命名模式">
+          <el-radio-group v-model="state.addition.rename_mode">
+            <el-radio-button value="">按规则命名</el-radio-button>
+            <el-radio-button value="tmdb_rename">TMDB 重命名</el-radio-button>
+          </el-radio-group>
+          <div class="drawer-form__hint">
+            TMDB 重命名：用 TMDB 最新一季的集表把「第N期 + 上/中/下」对照成集号，只处理过滤后剩下的文件；
+            对不上的会跳过并在预览里说明原因。需先绑定 TMDB（综艺/剧集）。
+          </div>
+          <div v-if="state.addition.rename_mode === 'tmdb_rename'" class="drawer-form__hint">
+            此模式下替换表达式生效：{TASKNAME}=任务名、{SXX}=季（S08）、{S}=季（8）、{E0}=集（补零）、{E}=集、{EXT}=后缀；
+            还可用 {DATE}/{YEAR}/{PART} 等按原文件名解析。匹配表达式不生效。
+          </div>
+        </el-form-item>
         <el-form-item label="内置规则（可选）">
           <el-select
             v-model="magicRegex.selectedKey"
@@ -2431,9 +2614,10 @@ async function submitSaveTemplate() {
           </el-select>
           <div class="drawer-form__hint">选择后会把默认 pattern / replace 填入输入框，可继续修改。</div>
         </el-form-item>
-        <el-form-item label="匹配表达式（pattern）">
-          <el-input v-model="state.pattern" placeholder="$TV_REGEX 或正则表达式" />
-          <div v-if="activeMagicRule" class="drawer-form__hint">内置规则实际正则：{{ activeMagicRule.pattern }}</div>
+        <el-form-item label="匹配表达式（pattern）" :class="{ 'drawer-form__item--disabled': isTmdbRename }">
+          <el-input v-model="state.pattern" placeholder="$TV_REGEX 或正则表达式" :disabled="isTmdbRename" />
+          <div v-if="isTmdbRename" class="drawer-form__hint">TMDB 重命名不使用匹配表达式，切换回“按规则命名”后可编辑</div>
+          <div v-else-if="activeMagicRule" class="drawer-form__hint">内置规则实际正则：{{ activeMagicRule.pattern }}</div>
         </el-form-item>
         <el-form-item label="替换表达式（replace）">
           <el-input v-model="state.replace" placeholder="\1E\2.\3" />
@@ -2670,6 +2854,14 @@ async function submitSaveTemplate() {
         <div v-if="sharePicker.stack.length" style="font-size: 12px; color: var(--el-text-color-secondary); margin-bottom: 4px">
           当前路径：/{{ sharePicker.stack.filter((x) => x.name !== '当前目录').map((x) => x.name).join('/') }}
         </div>
+        <el-alert
+          v-if="sharePicker.yearFilterReason"
+          :title="sharePicker.yearFilterReason"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 6px"
+        />
       </div>
       <el-table :data="sharePicker.items" v-loading="sharePicker.loading" size="small" style="width: 100%" max-height="55vh" @row-click="onShareRowClick">
         <el-table-column label="名称" min-width="200" show-overflow-tooltip>
@@ -2687,7 +2879,13 @@ async function submitSaveTemplate() {
         </el-table-column>
         <el-table-column label="正则处理" min-width="200" sortable :sort-method="sortFileNameRe" show-overflow-tooltip>
           <template #default="{ row }">
-            <span v-if="row.file_name_re" style="color: var(--el-color-success)">{{ row.file_name_re }}</span>
+            <!-- Year mismatch wins over rename notes: the item is excluded regardless of naming result. -->
+            <span v-if="row.filtered_by_year" style="color: var(--el-color-danger)">× 年份与目标年份不符</span>
+            <span v-else-if="row.file_name_re" style="color: var(--el-color-success)">
+              {{ row.file_name_re }}
+              <span v-if="row.rename_note" style="color: var(--el-color-warning)">（{{ row.rename_note }}）</span>
+            </span>
+            <span v-else-if="row.rename_note" style="color: var(--el-color-warning)">! {{ row.rename_note }}</span>
             <span v-else-if="row.file_name_saved" style="color: var(--el-color-danger)">× {{ row.file_name_saved }}</span>
             <span v-else-if="row.filtered_by_size" style="color: var(--el-color-danger)">× 大小小于阈值</span>
             <span v-else-if="row.filtered_by_keyword" style="color: var(--el-color-danger)">× 匹配过滤词</span>
@@ -2871,6 +3069,9 @@ async function submitSaveTemplate() {
   gap: 12px;
 }
 
+.drawer-form__item--disabled :deep(.el-form-item__label) {
+  color: var(--el-text-color-disabled);
+}
 .drawer-form__hint {
   margin-top: 6px;
   color: var(--el-text-color-secondary);

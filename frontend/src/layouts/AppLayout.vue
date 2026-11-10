@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { ArrowRight, Bell, Calendar, Film, HomeFilled, Menu, Setting, User } from '@element-plus/icons-vue'
+import { ArrowRight, Bell, Film, HomeFilled, Menu, Setting, User } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { resetDynamicRoutes } from '@/router'
@@ -14,7 +14,6 @@ const auth = useAuthStore()
 const iconMap = {
   ArrowRight,
   Bell,
-  Calendar,
   Film,
   HomeFilled,
   Menu,
@@ -93,7 +92,7 @@ async function handleLogout() {
 }
 
 onMounted(async () => {
-  buildTag.value = 'v26.9.6'
+  buildTag.value = 'v26.11.11'
   buildSha.value = '7ac2864'
 })
 

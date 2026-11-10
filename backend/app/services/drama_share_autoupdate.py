@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.extensions.runtime.adapter_registry import AdapterRegistry
 from app.extensions.runtime.magic_rename import MagicRename
+from app.services.tmdb_rename import TMDB_MODE, get_rename_mode
 from app.models.drive_account import DriveAccount
 from app.services.resource_search import fetch_task_suggestions
 from app.services.tmdb_cache import get_tmdb_detail_cached
@@ -251,6 +252,9 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
     drive_type = _pick_drive_type(db, task) or "quark"
 
     addition = _task_addition(task)
+    from app.services.year_filter import active_filter_year
+
+    filter_year = active_filter_year(addition)
     search_filter = str(addition.get("search_filter") or "").strip()
     search_exclude = str(addition.get("search_exclude") or "").strip()
     search_date_from = str(addition.get("search_date_from") or "").strip()
@@ -272,7 +276,25 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
     task_pattern = str(getattr(task, "pattern", "") or "").strip()
     task_replace = str(getattr(task, "replace", "") or "").strip()
     mr: MagicRename | None = None
-    if task_pattern or task_replace:
+    addition_data = _task_addition(task)
+    if get_rename_mode(addition_data) == TMDB_MODE:
+        # TMDB 模式：只读对照结果，换链环节不改动编号
+        from app.extensions.runtime.rename_engine import build_rename_engine
+
+        mr = build_rename_engine(
+            db,
+            task_data={
+                "taskname": str(getattr(task, "taskname", "") or "").strip(),
+                "pattern": task_pattern,
+                "replace": task_replace,
+                "addition": addition_data,
+                "tmdb_id": int(getattr(task, "tmdb_id", 0) or 0),
+                "tmdb_media_type": str(getattr(task, "tmdb_media_type", "") or ""),
+            },
+        )
+        if getattr(getattr(mr, "plan", None), "fatal_reason", None):
+            mr = None
+    elif task_pattern or task_replace:
         try:
             mr = MagicRename()
             mr.taskname = str(getattr(task, "taskname", "") or "").strip()
@@ -495,7 +517,7 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
             logger.info("  候选%d：跳过已尝试", i+1)
             continue
         # 按子目录分组获取文件列表
-        groups = fetch_share_file_list_grouped(db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode, folder_priority=folder_priority, folder_priority_mode=folder_priority_mode)
+        groups = fetch_share_file_list_grouped(db, shareurl, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode, folder_priority=folder_priority, folder_priority_mode=folder_priority_mode, filter_year=filter_year)
         if not groups:
             logger.info("  候选%d：跳过无法获取", i+1)
             preview_stats["skip_unpreviewable"] = int(preview_stats.get("skip_unpreviewable") or 0) + 1
@@ -657,7 +679,7 @@ def resolve_drama_shareurl_update(db: Session, task: Any, *, respect_toggle: boo
             fb_url = str(fb["suggestion"].get("shareurl") or "").strip()
             # 备选池候选不检查已尝试，因为进入备选池时已标记
             # 重新获取文件列表，走同样的连贯性检查
-            fb_groups = fetch_share_file_list_grouped(db, fb_url, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode, folder_priority=folder_priority, folder_priority_mode=folder_priority_mode)
+            fb_groups = fetch_share_file_list_grouped(db, fb_url, folder_filter=folder_filter, folder_exclude=folder_exclude, folder_filter_mode=folder_filter_mode, folder_exclude_mode=folder_exclude_mode, folder_priority=folder_priority, folder_priority_mode=folder_priority_mode, filter_year=filter_year)
             if not fb_groups:
                 continue
             fb_best_fid: str | None = None

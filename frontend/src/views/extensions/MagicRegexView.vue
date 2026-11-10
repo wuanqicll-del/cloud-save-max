@@ -89,12 +89,6 @@ const openlist = reactive({
   tokenInput: '',
 })
 
-const hive = reactive({
-  loading: false,
-  saving: false,
-  api_url: '',
-})
-
 const sharerFilter = reactive({
   loading: false,
   saving: false,
@@ -261,33 +255,6 @@ function addSharerFromInput() {
     }
   }
   sharerDialog.inputValue = ''
-}
-
-
-async function loadHiveSettings() {
-  hive.loading = true
-  try {
-    const { fetchHiveSettings } = await import('@/api/systemSettings')
-    const data = await fetchHiveSettings()
-    hive.api_url = data.hive_api_url || ''
-  } catch (e) {
-    console.error('加载HDHive设置失败', e)
-  } finally {
-    hive.loading = false
-  }
-}
-
-async function saveHiveSettings() {
-  hive.saving = true
-  try {
-    const { updateHiveSettings } = await import('@/api/systemSettings')
-    await updateHiveSettings({ hive_api_url: hive.api_url.trim() })
-    ElMessage.success('HDHive设置已保存')
-  } catch (e) {
-    ElMessage.error('保存失败')
-  } finally {
-    hive.saving = false
-  }
 }
 
 async function loadSharerFilter() {
@@ -507,7 +474,7 @@ async function loadTemplates() {
 
 function openTemplateCreate() {
   templates.editingId = null
-  templates.form = { name: '', config: {} }
+  templates.form = { name: '', config: { rename_mode: '' } }
   templates.magicRegex.selectedKey = ''
   templates.dialogVisible = true
   loadMagicRegexRules()
@@ -517,6 +484,7 @@ function openTemplateCreate() {
 function openTemplateEdit(template: TaskTemplate) {
   templates.editingId = template.id
   templates.form = { name: template.name, config: { ...template.config } }
+  templates.form.config.rename_mode = templates.form.config.rename_mode === 'tmdb_rename' ? 'tmdb_rename' : ''
   const patternKey = template.config.pattern || ''
   const filterRuleName = template.config.filter_rule_name || ''
   templates.magicRegex.selectedKey = ''
@@ -671,7 +639,6 @@ onMounted(() => {
   loadSharerFilter()
   loadFilterRules()
   loadTemplates()
-  loadHiveSettings()
 })
 </script>
 
@@ -909,26 +876,6 @@ onMounted(() => {
           </el-form>
         </el-card>
 
-        <el-card class="page__card" shadow="never">
-          <template #header>
-            <div class="card__header">
-              <div>HDHive 影巢设置</div>
-              <el-button text :loading="hive.loading" @click="loadHiveSettings">刷新</el-button>
-            </div>
-          </template>
-          <div style="margin-bottom: 12px; color: var(--el-text-color-secondary); font-size: 13px">
-            配置HDHive服务地址，用于影巢任务获取最新分享链接。
-          </div>
-          <el-form label-position="top" :disabled="hive.loading">
-            <el-form-item label="HDHive服务地址">
-              <el-input v-model="hive.api_url" placeholder="例如：http://192.168.50.41:8080" />
-              <div class="form-item-hint">HDHive项目的访问地址，需要包含端口号</div>
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" :loading="hive.saving" :disabled="!canWrite" @click="saveHiveSettings">保存配置</el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
       </el-tab-pane>
 
       <el-tab-pane label="TMDB" name="tmdb">
@@ -1077,14 +1024,25 @@ onMounted(() => {
         <!-- 重命名设置 -->
         <el-divider />
         <div class="drawer-form__section-title">重命名设置</div>
+        <el-form-item label="命名模式">
+          <el-radio-group v-model="templates.form.config.rename_mode">
+            <el-radio-button value="">按规则命名</el-radio-button>
+            <el-radio-button value="tmdb_rename">TMDB 重命名</el-radio-button>
+          </el-radio-group>
+          <div class="drawer-form__hint">
+            TMDB 重命名：用 TMDB 最新一季的集表把「第N期 + 上/中/下」对照成集号，需要任务已绑定 TMDB。
+            该模式下匹配表达式不生效；替换表达式生效，可用 {TASKNAME}/{SXX}/{S}/{E0}/{E}/{EXT}（季集号取 TMDB）。
+          </div>
+        </el-form-item>
         <el-form-item label="内置规则（可选）">
           <el-select v-model="templates.magicRegex.selectedKey" style="width: 100%" clearable placeholder="选择内置规则后会自动填入下方输入框" @change="applyMagicRule">
             <el-option v-for="rule in templates.magicRegex.rules" :key="rule.key" :label="rule.label ? `${rule.label}（${rule.key}）` : rule.key" :value="rule.key" />
           </el-select>
           <div class="drawer-form__hint">选择后会把默认 pattern / replace 填入输入框，可继续修改。</div>
         </el-form-item>
-        <el-form-item label="匹配表达式（pattern）">
-          <el-input v-model="templates.form.config.pattern" placeholder="$TV_REGEX 或正则表达式" />
+        <el-form-item label="匹配表达式（pattern）" :class="{ 'form-item--disabled': templates.form.config.rename_mode === 'tmdb_rename' }">
+          <el-input v-model="templates.form.config.pattern" placeholder="$TV_REGEX 或正则表达式" :disabled="templates.form.config.rename_mode === 'tmdb_rename'" />
+          <div v-if="templates.form.config.rename_mode === 'tmdb_rename'" class="form-item-hint">TMDB 重命名不使用匹配表达式</div>
         </el-form-item>
         <el-form-item label="替换表达式（replace）">
           <el-input v-model="templates.form.config.replace" placeholder="\1E\2.\3" />
@@ -1126,6 +1084,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.form-item--disabled :deep(.el-form-item__label) {
+  color: var(--el-text-color-disabled);
 }
 .form-item-hint {
   margin-top: 4px;
